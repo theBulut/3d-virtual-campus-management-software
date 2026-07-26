@@ -19,6 +19,29 @@ Full-stack web application skeleton (frontend + backend in one repo, containeriz
 └── docker-compose.yml
 ```
 
+## Features
+
+### User-Verwaltung (Admin)
+
+Ein Admin kann im Frontend-Editor alle User verwalten: anlegen, alle Attribute bearbeiten,
+löschen und die komplette Liste per Klick anzeigen.
+
+| Methode | Endpoint | Beschreibung |
+| --- | --- | --- |
+| `GET` | `/api/users` | Alle User (sortiert nach Nachname, Vorname) |
+| `GET` | `/api/users/{id}` | Einzelnen User laden |
+| `POST` | `/api/users` | User anlegen |
+| `PUT` | `/api/users/{id}` | Alle Attribute eines Users bearbeiten |
+| `DELETE` | `/api/users/{id}` | User löschen |
+| `GET` | `/api/admins` | Alle Admins |
+| `GET` | `/api/admins/{username}` | Admin per Username laden |
+
+Beim Start wird ein Default-Admin (`admin` / "Campus Administrator") angelegt.
+Authentifizierung ist noch nicht verdrahtet — die API ist aktuell ungeschützt.
+
+Fehlerantworten: `400` mit `fieldErrors` bei Validierungsfehlern, `409` bei doppelter
+E-Mail-Adresse, `404` bei unbekannter ID.
+
 ## Run with Docker
 
 ```bash
