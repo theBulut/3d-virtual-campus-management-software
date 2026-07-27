@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: campus-admin
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/campus}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+
+  jpa:
+    # The schema is owned by Flyway so it stays reproducible and citable (NFA-04). Never set this to
+    # update or create-drop.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  jackson:
+    # Keeps optional members such as ApiError.fieldErrors out of the response instead of emitting null.
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    # Errors are rendered by GlobalExceptionHandler; nothing internal must leak (NFA-07).
+    include-stacktrace: never
+    include-message: never
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+campus:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-secret-change-me-in-every-other-profile}
+    access-ttl: ${CAMPUS_JWT_ACCESS_TTL:PT15M}
+    refresh-ttl: ${CAMPUS_JWT_REFRESH_TTL:P7D}
+  admin:
+    username: ${CAMPUS_ADMIN_USERNAME:admin}
+    password: ${CAMPUS_ADMIN_PASSWORD:admin}
+    email: ${CAMPUS_ADMIN_EMAIL:admin@localhost}
+  seed-demo: ${CAMPUS_SEED_DEMO:false}
+  media-path: ${CAMPUS_MEDIA_PATH:./data/media}

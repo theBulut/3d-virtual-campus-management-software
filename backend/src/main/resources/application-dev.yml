@@ -1,0 +1,16 @@
+# Local development against a PostgreSQL and Redis on localhost.
+# The demo data lives in its own Flyway location as a repeatable migration, because Flyway applies every
+# migration in its locations regardless of the active profile. Only this profile picks it up.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
+
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    de.tudarmstadt.campus.admin: DEBUG
+
+campus:
+  seed-demo: ${CAMPUS_SEED_DEMO:true}

@@ -14,14 +14,24 @@ services:
       context: ./backend
     restart: unless-stopped
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Optional overrides. Without a .env the backend generates a random JWT secret at startup, so
+    # `docker compose up --build` needs no manual preparation (NFA-03) and no secret lives in the repo.
+    # Copy .env.example to .env to pin the secret and the initial admin account.
+    env_file:
+      - path: .env
+        required: false
     environment:
+      SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/campus
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       SPRING_DATA_REDIS_HOST: redis
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    volumes:
+      - media_data:/data/media
     ports:
       - "8080:8080"
 
@@ -36,12 +46,24 @@ services:
       - db-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d campus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   db-data:
+  media_data:

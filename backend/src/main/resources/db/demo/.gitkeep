@@ -1,0 +1,2 @@
+Demo seed data lives here as a repeatable migration (R__seed_demo_data.sql, phase 6).
+Only the dev profile adds this Flyway location, so demo accounts never reach docker or prod.

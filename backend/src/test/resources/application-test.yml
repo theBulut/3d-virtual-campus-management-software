@@ -1,0 +1,26 @@
+# Datasource and Redis coordinates come from Testcontainers (see AbstractIntegrationTest); there is no
+# in-memory database, because the Flyway migrations are PostgreSQL specific and an H2 path would verify a
+# different schema than the one that ships.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+
+campus:
+  jwt:
+    secret: test-secret-with-at-least-32-characters-length
+    access-ttl: PT15M
+    refresh-ttl: P7D
+  admin:
+    username: admin
+    password: test-password
+    email: admin@localhost
+  seed-demo: false
+  media-path: ./target/test-media
+
+logging:
+  level:
+    org.testcontainers: WARN
+    com.github.dockerjava: WARN

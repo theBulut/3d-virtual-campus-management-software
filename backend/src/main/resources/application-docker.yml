@@ -1,0 +1,18 @@
+# Used by docker compose.
+#
+# When JWT_SECRET is not supplied, a random 64 character secret is generated at startup instead of
+# falling back to a value committed to the repository. That keeps `docker compose up --build` free of
+# manual steps (NFA-03) while no known secret ever ships. The cost is that tokens do not survive a
+# restart; JwtSecretValidator logs a warning about it. Pin JWT_SECRET in .env to avoid that.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://db:5432/campus}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+
+campus:
+  jwt:
+    secret: ${JWT_SECRET:${random.value}${random.value}}
+  seed-demo: ${CAMPUS_SEED_DEMO:false}
+  media-path: ${CAMPUS_MEDIA_PATH:/data/media}
