@@ -12,30 +12,30 @@ Die IDs sind in Kapitel 3, 4 und 5 der Arbeit durchgängig zu referenzieren (Tra
 
 ### 1.1 Funktionale Anforderungen
 
-| ID | Anforderung | Priorität | Quelle |
-|---|---|---|---|
-| FA-01 | Nutzer authentifizieren sich mit Benutzername und Passwort und erhalten ein zeitlich begrenztes Zugriffstoken. | Muss | Kap. 2.3, 3.2.2 |
-| FA-02 | Passwörter werden ausschließlich als kryptografischer Hash gespeichert. | Muss | Kap. 3.2.2 |
-| FA-03 | Ein explizites Logout macht das ausgestellte Token sofort ungültig. | Muss | Kap. 3.2.2 (Redis-Blacklist) |
-| FA-04 | Das System stellt sechs vordefinierte Rollen bereit. | Muss | Kap. 3.3.1, Prüfer-Mail (hard-coded) |
-| FA-05 | Berechtigungen sind als eigenständige Objekte modelliert und Rollen zugeordnet. | Muss | Kap. 2.4, Prüfer-Mail |
-| FA-06 | Nutzer können einer oder mehreren Rollen zugeordnet werden. | Muss | Kap. 2.4 (Core RBAC) |
-| FA-07 | Berechtigte Nutzer können anderen Nutzern Rollen **zuweisen und entziehen**. | Muss | Prüfer-Mail (Benutzerverwaltung durch Projektleitung/Eileen) |
-| FA-08 | Die Menge vergebbarer Rollen ist abhängig von der Rolle des Vergebenden. | Muss | Prüfer-Mail (eingeschränkte Benutzerverwaltung) |
-| FA-09 | Berechtigte Nutzer können Konten anlegen, bearbeiten, sperren und löschen. | Muss | Prüfer-Mail |
-| FA-10 | Inhalte (POIs) durchlaufen einen Freigabe-Workflow: Entwurf → Prüfung → veröffentlicht. | Muss | Prüfer-Mail (Qualitätskontrolle/Freischalten durch Projektleitung) |
-| FA-11 | Erstellen und Freigeben von Inhalten sind unterschiedliche Berechtigungen. | Muss | Prüfer-Mail |
-| FA-12 | Nutzer mit eingeschränkten Rechten dürfen nur eigene bzw. zugewiesene Inhalte bearbeiten. | Muss | Kap. 3.3.1 (PROJEKTMITARBEITER) |
-| FA-13 | Beratungszeiten können durch Verwaltungspersonal gepflegt werden. | Muss | Kap. 3.3.1 (PERSONAL) |
-| FA-14 | Jede geschützte Operation wird **serverseitig** autorisiert; kein Endpunkt ist unbeabsichtigt offen. | Muss | Kap. 2.4, 3.3.3 |
-| FA-15 | Alle schreibenden Operationen und abgewiesene Zugriffe werden revisionssicher protokolliert. | Muss | Kap. 3.2.3 |
-| FA-16 | Die Administrationsoberfläche blendet Funktionen ohne Berechtigung aus. | Muss | Kap. 3.2.4 |
-| FA-17 | Veröffentlichte Inhalte sind ohne Authentifizierung über eine öffentliche Schnittstelle abrufbar. | Muss | Kap. 3.4.2 (Vorbereitung Unity) |
-| FA-18 | Die REST-Schnittstelle ist vollständig über OpenAPI dokumentiert. | Muss | Kap. 3.2.1 |
-| FA-19 | Rechteänderungen werden ohne Neustart und ohne Abwarten der Token-Laufzeit wirksam. | Soll | abgeleitet aus FA-07 |
-| FA-20 | Die Berechtigungsmatrix ist zur Laufzeit über die API abrufbar. | Soll | Nachweisbarkeit für Kap. 4/5 |
-| FA-21 | Medien können hochgeladen und einem POI zugeordnet werden. | Soll | Kap. 3.3.1 |
-| FA-22 | Inhaltsdaten können exportiert werden (CSV). | Kann | Kap. 3.3.1 (PROJEKTLEITER) |
+| ID    | Anforderung                                                                                                    | Priorität | Quelle                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------ |
+| FA-01 | Nutzer authentifizieren sich mit Benutzername und Passwort und erhalten ein zeitlich begrenztes Zugriffstoken. | Muss      | Kap. 2.3, 3.2.2                                                    |
+| FA-02 | Passwörter werden ausschließlich als kryptografischer Hash gespeichert.                                        | Muss      | Kap. 3.2.2                                                         |
+| FA-03 | Ein explizites Logout macht das ausgestellte Token sofort ungültig.                                            | Muss      | Kap. 3.2.2 (Redis-Blacklist)                                       |
+| FA-04 | Das System stellt sechs vordefinierte Rollen bereit.                                                           | Muss      | Kap. 3.3.1, Prüfer-Mail (hard-coded)                               |
+| FA-05 | Berechtigungen sind als eigenständige Objekte modelliert und Rollen zugeordnet.                                | Muss      | Kap. 2.4, Prüfer-Mail                                              |
+| FA-06 | Nutzer können einer oder mehreren Rollen zugeordnet werden.                                                    | Muss      | Kap. 2.4 (Core RBAC)                                               |
+| FA-07 | Berechtigte Nutzer können anderen Nutzern Rollen **zuweisen und entziehen**.                                   | Muss      | Prüfer-Mail (Benutzerverwaltung durch Projektleitung/Eileen)       |
+| FA-08 | Die Menge vergebbarer Rollen ist abhängig von der Rolle des Vergebenden.                                       | Muss      | Prüfer-Mail (eingeschränkte Benutzerverwaltung)                    |
+| FA-09 | Berechtigte Nutzer können Konten anlegen, bearbeiten, sperren und löschen.                                     | Muss      | Prüfer-Mail                                                        |
+| FA-10 | Inhalte (POIs) durchlaufen einen Freigabe-Workflow: Entwurf → Prüfung → veröffentlicht.                        | Muss      | Prüfer-Mail (Qualitätskontrolle/Freischalten durch Projektleitung) |
+| FA-11 | Erstellen und Freigeben von Inhalten sind unterschiedliche Berechtigungen.                                     | Muss      | Prüfer-Mail                                                        |
+| FA-12 | Nutzer mit eingeschränkten Rechten dürfen nur eigene bzw. zugewiesene Inhalte bearbeiten.                      | Muss      | Kap. 3.3.1 (PROJEKTMITARBEITER)                                    |
+| FA-13 | Beratungszeiten können durch Verwaltungspersonal gepflegt werden.                                              | Muss      | Kap. 3.3.1 (PERSONAL)                                              |
+| FA-14 | Jede geschützte Operation wird **serverseitig** autorisiert; kein Endpunkt ist unbeabsichtigt offen.           | Muss      | Kap. 2.4, 3.3.3                                                    |
+| FA-15 | Alle schreibenden Operationen und abgewiesene Zugriffe werden revisionssicher protokolliert.                   | Muss      | Kap. 3.2.3                                                         |
+| FA-16 | Die Administrationsoberfläche blendet Funktionen ohne Berechtigung aus.                                        | Muss      | Kap. 3.2.4                                                         |
+| FA-17 | Veröffentlichte Inhalte sind ohne Authentifizierung über eine öffentliche Schnittstelle abrufbar.              | Muss      | Kap. 3.4.2 (Vorbereitung Unity)                                    |
+| FA-18 | Die REST-Schnittstelle ist vollständig über OpenAPI dokumentiert.                                              | Muss      | Kap. 3.2.1                                                         |
+| FA-19 | Rechteänderungen werden ohne Neustart und ohne Abwarten der Token-Laufzeit wirksam.                            | Soll      | abgeleitet aus FA-07                                               |
+| FA-20 | Die Berechtigungsmatrix ist zur Laufzeit über die API abrufbar.                                                | Soll      | Nachweisbarkeit für Kap. 4/5                                       |
+| FA-21 | Medien können hochgeladen und einem POI zugeordnet werden.                                                     | Soll      | Kap. 3.3.1                                                         |
+| FA-22 | Inhaltsdaten können exportiert werden (CSV).                                                                   | Kann      | Kap. 3.3.1 (PROJEKTLEITER)                                         |
 
 ### 1.2 Nicht-funktionale Anforderungen
 

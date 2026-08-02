@@ -1,3 +1,4 @@
+
 # 3D Virtual Campus Management Software
 
 Administrationsinfrastruktur für den 3D Campus Explorer der TU Darmstadt — Bachelorarbeit, Mehmet Bulut.
@@ -30,7 +31,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | Phase | Inhalt | Status |
 |---|---|---|
 | 0 | Fundament: Paketstruktur, Abhängigkeiten, Profile, Fehlerformat | ✅ |
-| 1 | Datenmodell und Flyway-Migrationen | offen |
+| 1 | Datenmodell und Flyway-Migrationen | ✅ |
 | 2 | RBAC-Katalog und Seeding | offen |
 | 3 | Authentifizierung (JWT, Refresh, Logout) | offen |
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | offen |

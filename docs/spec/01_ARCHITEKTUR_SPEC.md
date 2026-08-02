@@ -19,15 +19,15 @@
 Die folgenden Entscheidungen leiten sich direkt aus der Rückmeldung des Prüfers (Dr.-Ing. Stefan Göbel, E-Mail
 vom 01.07.2026) ab und sind für den Prototyp bindend.
 
-| # | Entscheidung | Herkunft / Begründung |
-|---|---|---|
-| E-1 | **Rollen sind hard-coded.** Die sechs Rollen werden beim Systemstart aus einem Java-Katalog in die Datenbank geseedet. Es gibt **keine UI zum Erstellen eigener Rollen**. | Stefan: *"'hard coded Rollenkonzept' auch erstmal genug … individuelle Rollenerstellung in den Ausblick der Arbeit"* |
-| E-2 | **Berechtigungen sind technisch fixiert** und als eigenständige Entität modelliert (`permission`, `role_permission`). Rollen sind Bündel von Berechtigungen. Die Zuordnung ist in der DB abgelegt, aber im Prototyp nur lesbar. | Stefan: *"klingt gut"* zum permission-basierten Modell; Thesis Kap. 2.4 fordert Nutzer/Rollen/Berechtigungen als getrennte Elemente. Dadurch ist der Ausblick (individuelle Rollen) eine reine UI-/Endpunkt-Ergänzung, kein Redesign. |
-| E-3 | **Admins weisen Rollen zu und entziehen sie.** Das ist die zentrale, im Prototyp voll umgesetzte RBAC-Verwaltungsfunktion. Auch `PROJEKTLEITER` darf Rollen vergeben — aber nur aus einer eingeschränkten, datenbankgestützten Teilmenge. | Stefan: *"Benutzerverwaltung: Projektleitung/Eileen richtet Accounts ein … ggf. aus Systemadmin-Sicht (wir)"* |
-| E-4 | **Freigabe-Workflow für Content** (Entwurf → Prüfung → veröffentlicht). Erstellen und Freigeben sind getrennte Berechtigungen. | Stefan: *"ggf. Qualitätskontrolle/Check/Freischalten von Content durch Projektleitung"* |
-| E-5 | **Keine Unity-Anbindung.** Es gibt lediglich eine öffentliche, lesende Endpunktgruppe `/api/public/**`, die ein Unity-Client später konsumieren *könnte*. Kein Unity-Code, keine Unity-Tests. | Stefan auf die Frage nach Unity-Anbindung: *"ja"* (begrenzte Datenverwaltung reicht) |
-| E-6 | **Begrenzter Content-Umfang:** POIs, Gebäude, Beratungszeiten, Medien-Metadaten. Kein vollwertiges CMS. | Thesis Kap. 2.4: *"ohne ein vollständiges Content-Management-System vorauszusetzen"* |
-| E-7 | **Durchsetzung ausschließlich serverseitig.** Frontend-Guards dienen nur der Usability. Jeder geschützte Endpunkt trägt eine `@PreAuthorize`-Annotation; ein Test weist nach, dass kein Endpunkt ungeschützt ist. | Thesis Kap. 2.4 und 3.3.3 |
+| #   | Entscheidung                                                                                                                                                                                                                              | Herkunft / Begründung                                                                                                                                                                                                                 |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E-1 | **Rollen sind hard-coded.** Die sechs Rollen werden beim Systemstart aus einem Java-Katalog in die Datenbank geseedet. Es gibt **keine UI zum Erstellen eigener Rollen**.                                                                 | Stefan: *"'hard coded Rollenkonzept' auch erstmal genug … individuelle Rollenerstellung in den Ausblick der Arbeit"*                                                                                                                  |
+| E-2 | **Berechtigungen sind technisch fixiert** und als eigenständige Entität modelliert (`permission`, `role_permission`). Rollen sind Bündel von Berechtigungen. Die Zuordnung ist in der DB abgelegt, aber im Prototyp nur lesbar.           | Stefan: *"klingt gut"* zum permission-basierten Modell; Thesis Kap. 2.4 fordert Nutzer/Rollen/Berechtigungen als getrennte Elemente. Dadurch ist der Ausblick (individuelle Rollen) eine reine UI-/Endpunkt-Ergänzung, kein Redesign. |
+| E-3 | **Admins weisen Rollen zu und entziehen sie.** Das ist die zentrale, im Prototyp voll umgesetzte RBAC-Verwaltungsfunktion. Auch `PROJEKTLEITER` darf Rollen vergeben — aber nur aus einer eingeschränkten, datenbankgestützten Teilmenge. | Stefan: *"Benutzerverwaltung: Projektleitung/Eileen richtet Accounts ein … ggf. aus Systemadmin-Sicht (wir)"*                                                                                                                         |
+| E-4 | **Freigabe-Workflow für Content** (Entwurf → Prüfung → veröffentlicht). Erstellen und Freigeben sind getrennte Berechtigungen.                                                                                                            | Stefan: *"ggf. Qualitätskontrolle/Check/Freischalten von Content durch Projektleitung"*                                                                                                                                               |
+| E-5 | **Keine Unity-Anbindung.** Es gibt lediglich eine öffentliche, lesende Endpunktgruppe `/api/public/**`, die ein Unity-Client später konsumieren *könnte*. Kein Unity-Code, keine Unity-Tests.                                             | Stefan auf die Frage nach Unity-Anbindung: *"ja"* (begrenzte Datenverwaltung reicht)                                                                                                                                                  |
+| E-6 | **Begrenzter Content-Umfang:** POIs, Gebäude, Beratungszeiten, Medien-Metadaten. Kein vollwertiges CMS.                                                                                                                                   | Thesis Kap. 2.4: *"ohne ein vollständiges Content-Management-System vorauszusetzen"*                                                                                                                                                  |
+| E-7 | **Durchsetzung ausschließlich serverseitig.** Frontend-Guards dienen nur der Usability. Jeder geschützte Endpunkt trägt eine `@PreAuthorize`-Annotation; ein Test weist nach, dass kein Endpunkt ungeschützt ist.                         | Thesis Kap. 2.4 und 3.3.3                                                                                                                                                                                                             |
 
 ---
 
@@ -39,14 +39,14 @@ Sechs Rollen, exakt wie in Kapitel 3.3.1 der Arbeit benannt. Die Spalte *Projekt
 von Stefan genannten realen Personengruppen zu — diese Zuordnung ist der inhaltliche Kern der Antwort auf
 seine Frage nach den Rollen.
 
-| Rolle (technisch) | Anzeigename | Projektkontext (real) | Kernaufgabe im System |
-|---|---|---|---|
-| `ADMIN` | Systemadministration | AG Serious Games / technischer Systembetrieb ("wir", Stefan) | Vollzugriff. Legt Accounts an, vergibt und entzieht **alle** Rollen, sieht Audit-Log, Systemkonfiguration. |
-| `PROJEKTLEITER` | Projektleitung | Projektleitung / Eileen | Richtet Accounts für Mitarbeitende und Verwaltungspersonal ein, vergibt eingeschränkte Rollen, **gibt Inhalte frei** (Qualitätskontrolle), pflegt und löscht Inhalte, exportiert Daten. |
-| `PROJEKTMITARBEITER` | Projektmitarbeit | Story++-Team, studentische Hilfskräfte, beitragende Studierende | Speist Content ein: erstellt und bearbeitet **eigene bzw. zugewiesene** POIs, lädt Medien hoch, reicht Inhalte zur Prüfung ein. **Kann nicht selbst veröffentlichen.** |
-| `PERSONAL` | Verwaltungspersonal | Fachgebiete und Verwaltungspersonal der TU | Pflegt Beratungszeiten der eigenen Einrichtung und das eigene Profil. Keine Berührung mit dem RBAC-System. |
-| `MAINTENANCE_DEV` | Betrieb / Entwicklung | Technisches Betriebs- und Entwicklungspersonal | Liest Health-Status, Systeminfos und Audit-Log. **Kein** Zugriff auf Nutzerverwaltung und Inhalte (Least Privilege — bewusst als Negativbeispiel in der Matrix). |
-| `EXTERNE_PERSON` | Öffentlicher Zugriff | Besucher, Studierende ohne Account, künftiger Unity-Client | Nur lesender Zugriff auf **veröffentlichte** Inhalte über `/api/public/**`. Kein Benutzerkonto. |
+| Rolle (technisch)    | Anzeigename           | Projektkontext (real)                                           | Kernaufgabe im System                                                                                                                                                                   |
+| -------------------- | --------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN`              | Systemadministration  | AG Serious Games / technischer Systembetrieb ("wir", Stefan)    | Vollzugriff. Legt Accounts an, vergibt und entzieht **alle** Rollen, sieht Audit-Log, Systemkonfiguration.                                                                              |
+| `PROJEKTLEITER`      | Projektleitung        | Projektleitung / Eileen                                         | Richtet Accounts für Mitarbeitende und Verwaltungspersonal ein, vergibt eingeschränkte Rollen, **gibt Inhalte frei** (Qualitätskontrolle), pflegt und löscht Inhalte, exportiert Daten. |
+| `PROJEKTMITARBEITER` | Projektmitarbeit      | Story++-Team, studentische Hilfskräfte, beitragende Studierende | Speist Content ein: erstellt und bearbeitet **eigene bzw. zugewiesene** POIs, lädt Medien hoch, reicht Inhalte zur Prüfung ein. **Kann nicht selbst veröffentlichen.**                  |
+| `PERSONAL`           | Verwaltungspersonal   | Fachgebiete und Verwaltungspersonal der TU                      | Pflegt Beratungszeiten der eigenen Einrichtung und das eigene Profil. Keine Berührung mit dem RBAC-System.                                                                              |
+| `MAINTENANCE_DEV`    | Betrieb / Entwicklung | Technisches Betriebs- und Entwicklungspersonal                  | Liest Health-Status, Systeminfos und Audit-Log. **Kein** Zugriff auf Nutzerverwaltung und Inhalte (Least Privilege — bewusst als Negativbeispiel in der Matrix).                        |
+| `EXTERNE_PERSON`     | Öffentlicher Zugriff  | Besucher, Studierende ohne Account, künftiger Unity-Client      | Nur lesender Zugriff auf **veröffentlichte** Inhalte über `/api/public/**`. Kein Benutzerkonto.                                                                                         |
 
 **Wichtig zur Umsetzung von `EXTERNE_PERSON`:** Diese Rolle wird **keinem Benutzer zugewiesen**. Sie existiert
 als Zeile in der Tabelle `role` (Dokumentationszweck, Vollständigkeit der Matrix), technisch wird sie durch
@@ -89,11 +89,11 @@ Berechtigungen folgen dem Schema `RESOURCE_ACTION` und werden als Spring-Securit
 
 **Gebäude**
 
-| Code | Bedeutung |
-|---|---|
-| `BUILDING_READ_PUBLIC` | Öffentliche Gebäudedaten lesen |
-| `BUILDING_READ_ALL` | Alle Gebäudedaten lesen |
-| `BUILDING_CREATE` / `BUILDING_UPDATE` / `BUILDING_DELETE` | Schreibende Operationen |
+| Code                                                      | Bedeutung                      |
+| --------------------------------------------------------- | ------------------------------ |
+| `BUILDING_READ_PUBLIC`                                    | Öffentliche Gebäudedaten lesen |
+| `BUILDING_READ_ALL`                                       | Alle Gebäudedaten lesen        |
+| `BUILDING_CREATE` / `BUILDING_UPDATE` / `BUILDING_DELETE` | Schreibende Operationen        |
 
 **Beratungszeiten**
 
@@ -739,17 +739,17 @@ frontend/src
 
 **Navigationsregeln** (`Sidebar` filtert anhand `permissions` aus `/api/auth/me`):
 
-| Menüpunkt | Sichtbar bei |
-|---|---|
-| Dashboard | immer |
-| Nutzerverwaltung | `USER_READ` |
-| Rollen & Rechte | `ROLE_READ` |
-| POIs | `POI_READ_ALL` |
-| Freigabe-Warteschlange | `POI_PUBLISH` |
-| Gebäude | `BUILDING_READ_ALL` |
-| Beratungszeiten | `CONSULTATION_READ_ALL` |
-| Audit-Log | `AUDIT_READ` oder `AUDIT_READ_CONTENT` |
-| System | `SYSTEM_HEALTH_READ` |
+| Menüpunkt              | Sichtbar bei                           |
+| ---------------------- | -------------------------------------- |
+| Dashboard              | immer                                  |
+| Nutzerverwaltung       | `USER_READ`                            |
+| Rollen & Rechte        | `ROLE_READ`                            |
+| POIs                   | `POI_READ_ALL`                         |
+| Freigabe-Warteschlange | `POI_PUBLISH`                          |
+| Gebäude                | `BUILDING_READ_ALL`                    |
+| Beratungszeiten        | `CONSULTATION_READ_ALL`                |
+| Audit-Log              | `AUDIT_READ` oder `AUDIT_READ_CONTENT` |
+| System                 | `SYSTEM_HEALTH_READ`                   |
 
 **Rollenzuweisung im UI** (`RoleAssignPanel` auf `UserDetailPage`): zeigt die aktuellen Rollen als entfernbare
 Chips und ein Dropdown, das ausschließlich aus `GET /api/users/me/grantable-roles` befüllt wird. Aktionen laufen

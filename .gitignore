@@ -3,6 +3,6 @@
 .env.local
 .claude
 .vscode
-
+.obsidian
 # Local upload directory (CAMPUS_MEDIA_PATH default)
 data/

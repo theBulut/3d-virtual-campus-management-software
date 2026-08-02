@@ -203,6 +203,52 @@ unbeabsichtigt offen" (FA-14) ohne Sonderfall prüfbar.
 
 ---
 
+## D-14 — Ressourcen-Vokabular um `PROFILE` und `DATA` erweitert
+
+**Kontext.** Spec Abschnitt 2.1 nennt als `permission.resource` die Werte `USER, ROLE, POI, BUILDING,
+CONSULTATION, MEDIA, AUDIT, SYSTEM`. `PROFILE_UPDATE_OWN` und `DATA_EXPORT` passen in keinen davon.
+
+**Entscheidung.** `PROFILE` und `DATA` ergänzen; das Vokabular steht als `CHECK`-Constraint
+`permission_resource_known` in `V1`.
+
+**Begründung.** `GET /api/permissions` gruppiert nach `resource` — ohne die beiden Werte hätten zwei
+Berechtigungen keine sinnvolle Gruppe. Der Constraint macht das Vokabular in der Datenbank nachweisbar,
+statt es nur als Kommentar zu führen.
+
+**Abweichung von der Spec:** ja (Abschnitt 2.1).
+
+---
+
+## D-15 — `UserRole` und `RoleGrant` implementieren `Persistable`
+
+**Kontext.** Beide Entities haben einen zusammengesetzten, **zugewiesenen** Schlüssel (`@EmbeddedId`).
+Spring Data entscheidet in `SimpleJpaRepository.save()` anhand von `isNew()`, ob `persist()` oder
+`merge()` läuft, und hält eine nicht-null ID für eine bestehende Zeile. Eine frische Rollenzuweisung
+lief damit in `merge()` und scheiterte mit `TransientPropertyValueException`.
+
+**Entscheidung.** Beide implementieren `Persistable<…>` mit einem `@Transient`-Flag, das
+`@PostLoad`/`@PostPersist` zurücksetzt.
+
+**Begründung.** Betrifft nicht nur Tests: `RoleAssignmentService` in Phase 4 legt `user_role`-Zeilen über
+`save()` an. Die Alternative wäre gewesen, überall `EntityManager.persist()` zu verwenden und die
+Repository-Abstraktion zu umgehen.
+
+---
+
+## D-16 — `poi.building_id` bleibt ohne `ON DELETE`-Klausel
+
+**Kontext.** D-9 setzt `ON DELETE SET NULL` auf alle Verweise nach `admin_user`. Für `building_id` in
+`poi` und `consultation` gilt das bewusst **nicht**.
+
+**Entscheidung.** Keine `ON DELETE`-Klausel, also `NO ACTION`.
+
+**Begründung.** Spec Abschnitt 5.4 verlangt beim Löschen eines Gebäudes mit referenzierenden POIs eine
+`409`-Antwort. Ein `SET NULL` würde die POIs still verwaisen lassen, ein `CASCADE` sie mitlöschen —
+beides widerspricht der Anforderung. Der Service prüft über `PoiRepository.countByBuildingId` vor und
+die Datenbank ist die zweite Verteidigungslinie; `PoiRepositoryIT` belegt beides.
+
+---
+
 ## D-13 — HTTP 422 für unzulässige Statusübergänge
 
 **Kontext.** Spec Abschnitt 4.5 nennt `409 INVALID_STATUS_TRANSITION`, Abschnitt 4.7 nennt „`422`
