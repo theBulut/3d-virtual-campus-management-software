@@ -27,12 +27,17 @@ class SchemaValidationIT extends AbstractIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void allThreeMigrationsHaveBeenApplied() {
+    void everyMigrationHasBeenAppliedSuccessfully() {
         List<String> versions = jdbcTemplate.queryForList(
                 "select version from flyway_schema_history where success order by installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3");
+        // V1 to V3 build the schema, V4 seeds the RBAC catalogue.
+        assertThat(versions).containsExactly("1", "2", "3", "4");
+
+        Integer failed = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where not success", Integer.class);
+        assertThat(failed).isZero();
     }
 
     @Test
