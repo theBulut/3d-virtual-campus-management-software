@@ -41,13 +41,14 @@ class ApplicationContextIT extends AbstractIntegrationTest {
 
     @Test
     void hibernateRunsInValidateMode() {
-        // No entities and no migrations exist yet, so validate must simply pass. The point of the
-        // assertion is that ddl-auto never creates tables behind Flyway's back (NFA-04).
+        // Every table is owned by a migration, so the count matches the twelve of the specification.
+        // If ddl-auto ever created a table behind Flyway's back this would drift (NFA-04).
+        // SchemaValidationIT pins down the individual names.
         Integer businessTables = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.tables
                 where table_schema = 'public' and table_name <> 'flyway_schema_history'
                 """, Integer.class);
-        assertThat(businessTables).isZero();
+        assertThat(businessTables).isEqualTo(12);
     }
 
     @Test
