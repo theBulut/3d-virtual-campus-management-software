@@ -32,7 +32,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 |---|---|---|
 | 0 | Fundament: Paketstruktur, Abhängigkeiten, Profile, Fehlerformat | ✅ |
 | 1 | Datenmodell und Flyway-Migrationen | ✅ |
-| 2 | RBAC-Katalog und Seeding | offen |
+| 2 | RBAC-Katalog und Seeding | ✅ |
 | 3 | Authentifizierung (JWT, Refresh, Logout) | offen |
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | offen |
 | 5 | Audit-Log | offen |
@@ -42,6 +42,10 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 
 Aktuell erreichbar ist ausschließlich `GET /api/health`; jeder andere Pfad antwortet mit `401`, solange
 Phase 3 die Authentifizierung nicht bereitstellt.
+
+Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
+ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`). Außerhalb des
+`dev`-Profils erzwingt das Standardpasswort eine Änderung beim ersten Login.
 
 ## Gesamtsystem starten
 
