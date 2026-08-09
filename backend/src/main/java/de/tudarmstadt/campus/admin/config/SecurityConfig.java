@@ -1,8 +1,10 @@
 package de.tudarmstadt.campus.admin.config;
 
+import de.tudarmstadt.campus.admin.security.JwtAuthFilter;
+import de.tudarmstadt.campus.admin.security.RestAccessDeniedHandler;
+import de.tudarmstadt.campus.admin.security.RestAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -10,15 +12,14 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Baseline security for phase 0: the API is stateless and closed by default, only the endpoints that the
- * specification marks as {@code permitAll} are reachable without authentication (spec section 4.3).
+ * The API is stateless and closed by default; only the endpoints the specification marks as
+ * {@code permitAll} are reachable without a token (spec section 4.3).
  * <p>
- * Phase 3 extends this class with the JWT filter, the {@code /api/auth/**} allowlist and the
- * {@code ApiError}-producing entry point and access denied handler. Until then unauthenticated requests
- * receive a bare 401.
+ * Authorisation itself does not happen here but per controller method through {@code @PreAuthorize} on
+ * permission authorities. This chain only establishes who the caller is.
  */
 @Configuration
 @EnableWebSecurity
@@ -30,11 +31,26 @@ public class SecurityConfig {
      * {@code EndpointSecurityTest} (phase 4).
      */
     static final String[] PUBLIC_ENDPOINTS = {
+            "/api/auth/login",
+            "/api/auth/refresh",
+            "/api/public/**",
             "/api/health",
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html"
     };
+
+    private final JwtAuthFilter jwtAuthFilter;
+    private final RestAuthenticationEntryPoint authenticationEntryPoint;
+    private final RestAccessDeniedHandler accessDeniedHandler;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          RestAuthenticationEntryPoint authenticationEntryPoint,
+                          RestAccessDeniedHandler accessDeniedHandler) {
+        this.jwtAuthFilter = jwtAuthFilter;
+        this.authenticationEntryPoint = authenticationEntryPoint;
+        this.accessDeniedHandler = accessDeniedHandler;
+    }
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -46,10 +62,12 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .logout(logout -> logout.disable())
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .anyRequest().authenticated())
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
