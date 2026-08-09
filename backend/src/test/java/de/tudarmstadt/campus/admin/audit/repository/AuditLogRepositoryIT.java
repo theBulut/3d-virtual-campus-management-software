@@ -117,12 +117,17 @@ class AuditLogRepositoryIT extends AbstractIntegrationTest {
         auditLogs.save(new AuditLog("BUILDING_CREATED", "BUILDING", "3"));
         entityManager.flush();
 
+        // No exact totals here: audit entries are written with REQUIRES_NEW and therefore survive the
+        // rollback of other tests. What must hold is the property, not a count.
         List<String> contentTypes = List.of("POI", "BUILDING", "CONSULTATION", "MEDIA");
-        assertThat(auditLogs.search(null, null, contentTypes, null, null, PageRequest.of(0, 20)))
+        assertThat(auditLogs.search(null, null, contentTypes, null, null, PageRequest.of(0, 200)))
                 .extracting(AuditLog::getResourceType)
-                .containsOnly("POI", "BUILDING");
+                .isSubsetOf(contentTypes)
+                .contains("POI", "BUILDING");
 
-        assertThat(auditLogs.search(null, null, null, null, null, PageRequest.of(0, 20))
-                .getTotalElements()).isEqualTo(3);
+        assertThat(auditLogs.search(null, null, null, null, null, PageRequest.of(0, 200)))
+                .extracting(AuditLog::getResourceType)
+                .as("without the filter the USER entry is visible too")
+                .contains("USER");
     }
 }
