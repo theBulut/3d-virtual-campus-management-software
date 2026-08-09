@@ -407,6 +407,58 @@ sind jetzt auf `de.tudarmstadt.campus.admin` verankert.
 
 ---
 
+## D-31 — Eigener ObjectMapper für das Audit-Log
+
+**Kontext.** Boot 4 liefert Jackson 3 (`tools.jackson`), für JJWT liegt zusätzlich Jackson 2 im Classpath
+(D-4). Welcher `ObjectMapper` injiziert würde, ist damit nicht auf einen Blick klar.
+
+**Entscheidung.** `AuditService` erzeugt seinen eigenen `tools.jackson.databind.ObjectMapper`.
+
+**Begründung.** Die Audit-Darstellung muss stabil bleiben, auch wenn die HTTP-Serialisierung später über
+`spring.jackson.*` umkonfiguriert wird — ein Audit-Log, dessen Format sich mit einer API-Einstellung
+ändert, wäre schlecht auswertbar. Nebeneffekt: die Mehrdeutigkeit entfällt.
+
+---
+
+## D-32 — `AuditContext` ergänzt den Aspect um fachliches Wissen
+
+**Kontext.** Spec Abschnitt 4.6 verlangt `@Audited` plus `AuditAspect`, gleichzeitig aber `before_state`
+und `after_state`. Ein generischer Aspect kann Akteur, Aktion und Erfolg erfassen — nicht aber, dass eine
+Rollenliste von `[PERSONAL]` auf `[PERSONAL, PROJEKTMITARBEITER]` gewechselt ist.
+
+**Entscheidung.** Ein `ThreadLocal`-basierter `AuditContext`, in den die auditierte Methode Vorher- und
+Nachher-Zustand, eine verfeinerte Aktion und die Ressourcen-ID schreiben kann. Der Aspect leert ihn um
+jeden Aufruf herum.
+
+**Begründung.** Ein Mechanismus statt zweier. Die Verfeinerung der Aktion löst zwei reale Fälle: Sperren
+und Entsperren teilen sich eine Methode, sind im Katalog aber `USER_DEACTIVATED` und `USER_ACTIVATED`;
+und die ID eines neu angelegten Kontos existiert erst nach dem Insert, kann also nicht aus dem
+SpEL-Ausdruck der Annotation kommen.
+
+---
+
+## D-33 — Der Aspect umschließt die Transaktion
+
+**Kontext.** Ein Audit-Eintrag muss auch dann bestehen bleiben, wenn die Geschäftstransaktion
+zurückgerollt wird — sonst wäre eine abgewiesene Rollenvergabe (S-06) unsichtbar.
+
+**Entscheidung.** `AuditAspect` läuft mit `@Order(HIGHEST_PRECEDENCE)`, also außerhalb der
+Transaktionsberatung, und `AuditWriter.write` trägt `REQUIRES_NEW`.
+
+**Begründung.** Bei Erfolg ist die Geschäftstransaktion beim Schreiben bereits committet, bei einem
+Fehler bereits zurückgerollt — der Eintrag dokumentiert dann einen Versuch, der nichts verändert hat.
+
+Zwei Fallstricke, die dabei auftraten und in Tests festgehalten sind:
+
+- `@Transactional` wirkt bei Proxy-basiertem AOP **nur auf public Methoden**. `AuditWriter.write` war
+  zuerst package-private; `REQUIRES_NEW` wäre wirkungslos geblieben und der Eintrag mit der
+  Geschäftstransaktion verschwunden.
+- `@Around("@annotation(audited)")` mit gebundenem Parameter scheitert, sobald ein zweiter Proxy
+  (die Transaktionsberatung) davor sitzt: „Required to bind 2 arguments … JoinPointMatch was NOT bound".
+  Die Annotation wird deshalb aus der Signatur gelesen statt gebunden.
+
+---
+
 ## D-20 — Mindestlänge 12 Zeichen für über die API gesetzte Passwörter
 
 **Kontext.** Die Spec definiert keine Passwortrichtlinie, setzt den Initial-Admin aber auf `admin`.

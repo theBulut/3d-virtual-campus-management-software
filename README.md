@@ -35,7 +35,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 2 | RBAC-Katalog und Seeding | ✅ |
 | 3 | Authentifizierung (JWT, Refresh, Logout) | ✅ |
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | ✅ |
-| 5 | Audit-Log | offen |
+| 5 | Audit-Log | ✅ |
 | 6 | Content: POI, Gebäude, Beratungszeiten, Medien | offen |
 | 7 | Frontend | offen |
 | 8 | Härtung, Dokumentation, Evaluation | offen |
@@ -43,9 +43,8 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
 ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`).
 
-Verfügbar sind `GET /api/health` sowie `/api/auth/**`: Anmeldung, Token-Erneuerung mit Rotation,
-Abmeldung und das eigene Profil. Jeder andere Pfad antwortet mit `401`, solange die Fachendpunkte aus
-Phase 4 fehlen.
+Unter `/api/auth/**` liegen Anmeldung, Token-Erneuerung mit Rotation, Abmeldung und das eigene Profil.
+Ohne Token antwortet jeder Pfad außer `/api/health` und `/api/auth/login|refresh` mit `401`.
 
 Abgemeldet wird auf zwei Wegen (siehe `docs/DECISIONS.md` D-24):
 
@@ -57,6 +56,10 @@ Abgemeldet wird auf zwei Wegen (siehe `docs/DECISIONS.md` D-24):
 Dazu kommen die Verwaltungsendpunkte aus Phase 4 unter `/api/users`, `/api/roles` und `/api/permissions`
 — jeder mit `@PreAuthorize` auf einem Berechtigungscode. `GET /api/roles/matrix` liefert die vollständige
 Berechtigungsmatrix als JSON und ist zugleich die Quelle für die Abbildung in Kapitel 4 der Arbeit.
+
+Jede schreibende Operation und jeder abgewiesene Zugriff landen im Audit-Log (`GET /api/audit`).
+`AUDIT_READ` sieht alles, `AUDIT_READ_CONTENT` ausschließlich Einträge zu POI, Gebäude, Beratungszeiten
+und Medien. Passwörter, Hashes und Tokens werden beim Schreiben maskiert und stehen nie im Log.
 
 Zwei Regeln gelten über die Berechtigung hinaus: eine Rolle kann nur vergeben werden, wenn sie in der
 Vergabemenge des Aufrufers liegt (`role_grant`), und ein fremdes Konto nur bearbeitet werden, wenn **alle**
