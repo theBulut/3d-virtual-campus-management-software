@@ -1,5 +1,7 @@
 package de.tudarmstadt.campus.admin.rbac.service;
 
+import de.tudarmstadt.campus.admin.audit.AuditContext;
+import de.tudarmstadt.campus.admin.audit.Audited;
 import de.tudarmstadt.campus.admin.common.exception.BadRequestException;
 import de.tudarmstadt.campus.admin.common.exception.ConflictException;
 import de.tudarmstadt.campus.admin.common.exception.ForbiddenException;
@@ -59,10 +61,13 @@ public class RoleAssignmentService {
     /**
      * Follows the sequence of spec section 1.4 step by step.
      */
+    @Audited(action = "ROLE_ASSIGNED", resourceType = "USER", resourceId = "#targetUserId")
     @Transactional
     public void assign(long actorId, long targetUserId, String roleName) {
         AdminUser target = loadUser(targetUserId);
         Role role = loadRole(roleName);
+
+        AuditContext.before("roles", roles.findRoleNamesByUserId(targetUserId));
 
         // INV-4: EXTERNE_PERSON exists for the matrix and is never held by anyone.
         if (!role.isAssignable()) {
@@ -82,6 +87,7 @@ public class RoleAssignmentService {
         AdminUser actor = loadUser(actorId);
         userRoles.save(new UserRole(target, role, actor));
         invalidateSessions(target);
+        AuditContext.after("roles", roles.findRoleNamesByUserId(targetUserId));
         log.info("'{}' assigned role {} to '{}'", actor.getUsername(), roleName, target.getUsername());
     }
 
@@ -89,10 +95,13 @@ public class RoleAssignmentService {
      * Revoking additionally guards INV-1 and INV-3: the system keeps at least one active administrator,
      * and every account keeps at least one role.
      */
+    @Audited(action = "ROLE_REVOKED", resourceType = "USER", resourceId = "#targetUserId")
     @Transactional
     public void revoke(long actorId, long targetUserId, String roleName) {
         AdminUser target = loadUser(targetUserId);
         loadRole(roleName);
+
+        AuditContext.before("roles", roles.findRoleNamesByUserId(targetUserId));
 
         assertNotSelf(actorId, targetUserId);
         assertGrantable(actorId, roleName);
@@ -114,6 +123,7 @@ public class RoleAssignmentService {
 
         userRoles.delete(assignment);
         invalidateSessions(target);
+        AuditContext.after("roles", roles.findRoleNamesByUserId(targetUserId));
         log.info("Revoked role {} from '{}'", roleName, target.getUsername());
     }
 
