@@ -1,5 +1,7 @@
 package de.tudarmstadt.campus.admin.user.service;
 
+import de.tudarmstadt.campus.admin.audit.AuditContext;
+import de.tudarmstadt.campus.admin.audit.Audited;
 import de.tudarmstadt.campus.admin.common.dto.PageResponse;
 import de.tudarmstadt.campus.admin.common.exception.BadRequestException;
 import de.tudarmstadt.campus.admin.common.exception.ConflictException;
@@ -80,6 +82,7 @@ public class UserService {
      * Creates the account together with its roles. Every requested role is checked against the caller's
      * grant set, so nobody can create an account more powerful than themselves.
      */
+    @Audited(action = "USER_CREATED", resourceType = "USER")
     @Transactional
     public CreatedUserResponse create(long actorId, CreateUserRequest request) {
         if (adminUsers.existsByUsernameIgnoreCase(request.username())) {
@@ -110,15 +113,26 @@ public class UserService {
         AdminUser actor = loadUser(actorId);
         requestedRoles.forEach(role -> userRoles.save(new UserRole(saved, role, actor)));
 
+        // The id only exists after the insert, so it cannot come from the annotation.
+        AuditContext.resourceId(saved.getId());
+        AuditContext.after("username", saved.getUsername());
+        AuditContext.after("email", saved.getEmail());
+        AuditContext.after("roles", request.roles());
         log.info("'{}' created account '{}' with roles {}", actor.getUsername(), saved.getUsername(),
                 request.roles());
         return new CreatedUserResponse(toResponse(saved), temporaryPassword);
     }
 
+    @Audited(action = "USER_UPDATED", resourceType = "USER", resourceId = "#userId")
     @Transactional
     public UserResponse update(long actorId, long userId, UpdateUserRequest request) {
         AdminUser user = loadUser(userId);
         roleAssignments.assertCanManage(actorId, user);
+
+        AuditContext.before("email", user.getEmail());
+        AuditContext.before("firstName", user.getFirstName());
+        AuditContext.before("lastName", user.getLastName());
+        AuditContext.before("organisation", user.getOrganisation());
 
         if (adminUsers.existsByEmailIgnoreCaseAndIdNot(request.email(), userId)) {
             throw new ConflictException("EMAIL_ALREADY_USED",
@@ -129,17 +143,28 @@ public class UserService {
         user.setLastName(request.lastName().trim());
         user.setEmail(request.email().trim());
         user.setOrganisation(trimToNull(request.organisation()));
-        return toResponse(adminUsers.save(user));
+        AdminUser saved = adminUsers.save(user);
+        AuditContext.after("email", saved.getEmail());
+        AuditContext.after("firstName", saved.getFirstName());
+        AuditContext.after("lastName", saved.getLastName());
+        AuditContext.after("organisation", saved.getOrganisation());
+        return toResponse(saved);
     }
 
     /**
      * Locking an account ends its sessions at once and is guarded by INV-1 and INV-2.
      */
+    @Audited(action = "USER_DEACTIVATED", resourceType = "USER", resourceId = "#userId")
     @Transactional
     public UserResponse changeStatus(long actorId, long userId, boolean active) {
         assertNotSelf(actorId, userId, "Das eigene Konto kann nicht gesperrt werden.");
         AdminUser user = loadUser(userId);
         roleAssignments.assertCanManage(actorId, user);
+
+        // Locking and unlocking are separate actions in the catalogue of spec section 4.6.
+        AuditContext.action(active ? "USER_ACTIVATED" : "USER_DEACTIVATED");
+        AuditContext.before("active", user.isActive());
+        AuditContext.after("active", active);
 
         if (!active && user.isActive() && hasRole(userId, RoleCode.ADMIN)) {
             roleAssignments.assertAnotherActiveAdminRemains(userId);
@@ -157,6 +182,7 @@ public class UserService {
         return toResponse(saved);
     }
 
+    @Audited(action = "USER_DELETED", resourceType = "USER", resourceId = "#userId")
     @Transactional
     public void delete(long actorId, long userId) {
         assertNotSelf(actorId, userId, "Das eigene Konto kann nicht gelöscht werden.");
@@ -167,6 +193,8 @@ public class UserService {
             roleAssignments.assertAnotherActiveAdminRemains(userId);
         }
 
+        AuditContext.before("username", user.getUsername());
+        AuditContext.before("roles", roles.findRoleNamesByUserId(userId));
         adminUsers.delete(user);
         tokenVersions.invalidate(userId);
         log.info("Deleted account '{}'", user.getUsername());
@@ -176,6 +204,7 @@ public class UserService {
      * Sets a new generated password and returns it once. Ends every session of the account, because the
      * old password is gone (spec section 5.2).
      */
+    @Audited(action = "PASSWORD_RESET", resourceType = "USER", resourceId = "#userId")
     @Transactional
     public String resetPassword(long actorId, long userId) {
         AdminUser user = loadUser(userId);

@@ -1,5 +1,6 @@
 package de.tudarmstadt.campus.admin.user.service;
 
+import de.tudarmstadt.campus.admin.audit.service.AuditService;
 import de.tudarmstadt.campus.admin.common.exception.ConflictException;
 import de.tudarmstadt.campus.admin.common.exception.ForbiddenException;
 import de.tudarmstadt.campus.admin.common.exception.NotFoundException;
@@ -38,16 +39,18 @@ public class AuthService {
     private final TokenBlacklistService blacklist;
     private final TokenVersionService tokenVersions;
     private final PasswordService passwordService;
+    private final AuditService auditService;
 
     public AuthService(AdminUserRepository adminUsers, RoleRepository roles, JwtService jwtService,
                        TokenBlacklistService blacklist, TokenVersionService tokenVersions,
-                       PasswordService passwordService) {
+                       PasswordService passwordService, AuditService auditService) {
         this.adminUsers = adminUsers;
         this.roles = roles;
         this.jwtService = jwtService;
         this.blacklist = blacklist;
         this.tokenVersions = tokenVersions;
         this.passwordService = passwordService;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -58,16 +61,19 @@ public class AuthService {
         // find out which usernames exist.
         if (user == null || !passwordService.matches(rawPassword, user.getPasswordHash())) {
             log.debug("Failed login attempt for '{}'", username);
+            auditService.recordAuthEvent("LOGIN_FAILED", username, false, "INVALID_CREDENTIALS");
             throw new UnauthorizedException("INVALID_CREDENTIALS",
                     "Benutzername oder Passwort ist falsch.");
         }
         if (!user.isActive()) {
+            auditService.recordAuthEvent("LOGIN_FAILED", username, false, "ACCOUNT_DISABLED");
             throw new ForbiddenException("ACCOUNT_DISABLED",
                     "Dieses Konto ist gesperrt. Bitte wenden Sie sich an die Administration.");
         }
 
         user.setLastLoginAt(Instant.now());
         adminUsers.save(user);
+        auditService.recordAuthEvent("LOGIN_SUCCESS", user.getUsername(), true, null);
 
         return issueTokens(user);
     }
@@ -105,6 +111,7 @@ public class AuthService {
         }
 
         blacklist.blacklist(claims.jti(), claims.expiresAt());
+        auditService.recordAuthEvent("TOKEN_REFRESHED", user.getUsername(), true, null);
         return issueTokens(user);
     }
 
@@ -114,6 +121,7 @@ public class AuthService {
      */
     public void logout(TokenClaims accessClaims, String refreshToken) {
         blacklist.blacklist(accessClaims.jti(), accessClaims.expiresAt());
+        auditService.recordAuthEvent("LOGOUT", accessClaims.username(), true, null);
 
         if (refreshToken == null || refreshToken.isBlank()) {
             log.debug("Logout of '{}' without a refresh token; it stays valid until it expires",
@@ -148,6 +156,7 @@ public class AuthService {
 
         // Without this the filter would keep answering from the five minute cache.
         tokenVersions.invalidate(userId);
+        auditService.recordAuthEvent("LOGOUT", user.getUsername(), true, null);
         log.info("Ended all sessions of '{}'", user.getUsername());
     }
 
@@ -194,6 +203,7 @@ public class AuthService {
         user.setMustChangePassword(false);
         adminUsers.save(user);
         tokenVersions.invalidate(userId);
+        auditService.recordAuthEvent("PASSWORD_CHANGED", user.getUsername(), true, null);
     }
 
     private TokenResponse issueTokens(AdminUser user) {
