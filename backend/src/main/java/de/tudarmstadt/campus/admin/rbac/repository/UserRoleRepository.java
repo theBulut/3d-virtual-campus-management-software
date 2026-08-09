@@ -20,5 +20,8 @@ public interface UserRoleRepository extends JpaRepository<UserRole, UserRoleId> 
 
     long countByUserId(Long userId);
 
+    /** Number of accounts holding a role, shown next to each role in the interface. */
+    long countByRoleName(String roleName);
+
     void deleteByUserIdAndRoleName(Long userId, String roleName);
 }
