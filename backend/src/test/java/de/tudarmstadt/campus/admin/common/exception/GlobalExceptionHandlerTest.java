@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import de.tudarmstadt.campus.admin.config.SecurityConfig;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authorization.AuthorizationDeniedException;
@@ -28,7 +31,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Verifies the error format of spec section 4.7 and NFA-07 (no internal details in responses).
  */
-@WebMvcTest
+// This slice is about the error format alone. Security is excluded on purpose: @WebMvcTest picks up
+// SecurityConfig and every Filter bean, which would drag the whole JWT infrastructure into a test that
+// never authenticates anything. The security paths have their own coverage in AuthIntegrationIT.
+@WebMvcTest(
+        controllers = GlobalExceptionHandlerTest.ThrowingController.class,
+        excludeFilters = {
+                @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = SecurityConfig.class),
+                @ComponentScan.Filter(type = FilterType.REGEX,
+                        pattern = "de\\.tudarmstadt\\.campus\\.admin\\.security\\..*")})
 @Import(GlobalExceptionHandlerTest.ThrowingController.class)
 @AutoConfigureMockMvc(addFilters = false)
 class GlobalExceptionHandlerTest {

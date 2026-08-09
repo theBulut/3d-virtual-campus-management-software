@@ -34,9 +34,15 @@ class ArchitectureTest {
             .because("the API exposes DTOs only, never entities (spec section 3)")
             .allowEmptyShould(true);
 
+    /**
+     * The security infrastructure is a legitimate consumer of repositories: the specification places
+     * {@code CampusUserDetailsService} and {@code TokenVersionService} in {@code security} (section 3),
+     * and both have to read accounts. The rule that matters — controllers never touch repositories —
+     * stays strict above.
+     */
     @ArchTest
-    static final ArchRule repositories_are_only_used_by_services = noClasses()
-            .that().resideOutsideOfPackages("..service..", "..repository..")
+    static final ArchRule repositories_are_only_used_by_services_and_security = noClasses()
+            .that().resideOutsideOfPackages("..service..", "..repository..", "..security..")
             .should().dependOnClassesThat().resideInAPackage("..repository..")
             .because("repository access belongs in the service layer (spec section 3)")
             .allowEmptyShould(true);
@@ -47,10 +53,15 @@ class ArchitectureTest {
             .should().resideInAPackage("..web..")
             .allowEmptyShould(true);
 
+    /**
+     * Services return DTOs, and the specification places those under {@code web/dto} (section 3), so a
+     * blanket ban on {@code ..web..} would forbid the intended design. What must not happen is a service
+     * reaching back into a controller.
+     */
     @ArchTest
     static final ArchRule services_do_not_depend_on_controllers = noClasses()
             .that().resideInAPackage("..service..")
-            .should().dependOnClassesThat().resideInAPackage("..web..")
+            .should().dependOnClassesThat().haveSimpleNameEndingWith("Controller")
             .because("dependencies point inwards, not back at the web layer")
             .allowEmptyShould(true);
 }
