@@ -322,6 +322,91 @@ Werte weiterliefern.
 
 ---
 
+## D-25 — Konten bekommen ein erzeugtes Passwort, keines aus dem Request
+
+**Kontext.** Spec Abschnitt 5.2 beschreibt bei `POST /api/users` nur `roles[]` und schweigt zum Passwort.
+
+**Entscheidung.** Der Server erzeugt ein temporäres Passwort, gibt es einmalig in der Antwort zurück und
+setzt `must_change_password`. Der Request enthält kein Passwortfeld.
+
+**Begründung.** Dasselbe Verfahren wie beim Passwort-Reset, also ein Weg statt zwei. Ein Passwort im
+Request-Rumpf würde in Logs und Browser-Verlauf landen, und der Prototyp verschickt bewusst keine Mails
+(Spec Abschnitt 8). Zusammen mit D-21 heißt das: das neue Konto kann sich anmelden und ausschließlich
+sein Passwort ändern.
+
+---
+
+## D-26 — INV-2 verbietet jede Selbstbearbeitung, nicht nur die eigene ADMIN-Rolle
+
+**Kontext.** INV-2 nennt wörtlich nur „die eigene `ADMIN`-Rolle nicht selbst entziehen" und sagt nichts
+über andere eigene Rollen.
+
+**Entscheidung.** Jede Änderung an den eigenen Rollen sowie Selbstlöschung und Selbstsperrung sind
+verboten (`409 SELF_MODIFICATION_FORBIDDEN`).
+
+**Begründung.** Die schärfere Regel ist einfacher zu formulieren, zu testen und zu erklären als eine, die
+nach Rollenname unterscheidet. Ein Anwendungsfall für „sich selbst eine Rolle entziehen" existiert nicht;
+die Rechteverwaltung ist eine Fremdfunktion.
+
+---
+
+## D-27 — `roles[]` ist beim Anlegen eines Kontos Pflicht
+
+**Kontext.** INV-3 verlangt mindestens eine Rolle pro Konto, Spec Abschnitt 5.2 lässt offen, ob `roles[]`
+beim Anlegen angegeben werden muss.
+
+**Entscheidung.** `@NotEmpty`; ohne Rolle antwortet der Endpunkt mit `400` und `fieldErrors.roles`.
+
+**Begründung.** Sonst entstünde ein Konto, das INV-3 sofort verletzt und das wegen
+`assertCanManage` niemand mehr bearbeiten könnte — ein rollenloses Konto liegt außerhalb jeder
+Vergabemenge.
+
+---
+
+## D-28 — `PATCH /api/users/{id}/status` nimmt `{"active": …}`
+
+**Kontext.** Spec Abschnitt 5.2 nennt den Endpunkt, aber keinen Rumpf.
+
+**Entscheidung.** `{"active": true|false}`, Pflichtfeld. Sperren erhöht beide Versionszähler und beendet
+damit alle Sitzungen des Kontos.
+
+**Begründung.** Ein eigener Endpunkt statt eines Feldes in `PUT /{id}`: Sperren ist eine
+sicherheitsrelevante Einzelaktion mit eigenen Invarianten (INV-1, INV-2) und eigener Berechtigung
+(`USER_ACTIVATE`), und ein normales Stammdaten-Update soll niemanden versehentlich aussperren.
+
+---
+
+## D-29 — INV-1 ist über die API nicht erreichbar und bleibt trotzdem
+
+**Kontext.** Beim Schreiben der Invariantentests zeigte sich: `LAST_ADMIN_PROTECTED` kann durch keine
+API-Aufruffolge ausgelöst werden. Wer eine ADMIN-Rolle entziehen, ein Konto löschen oder sperren darf,
+muss selbst `ADMIN` sein und ist damit ein zweiter aktiver Administrator. Der Ein-Administrator-Fall
+wiederum wird bereits von INV-2 abgefangen, weil niemand sich selbst bearbeiten darf.
+
+**Entscheidung.** Die Prüfung bleibt und wird direkt auf der Wächtermethode
+`assertAnotherActiveAdminRemains` getestet, statt über eine konstruierte Aufruffolge.
+
+**Begründung.** Ehrlicher Test statt Schein-Nachweis. Die Prüfung ist zweite Verteidigungslinie für den
+Fall, dass INV-2 gelockert wird oder eine spätere Sammeloperation daran vorbeigeht. Für Kapitel 5 der
+Arbeit ist das Zusammenspiel der beiden Invarianten das eigentlich interessante Ergebnis.
+
+---
+
+## D-30 — DTOs kennen keine Entities
+
+**Kontext.** `UserResponse.of(AdminUser)` und `PermissionResponse.from(Permission)` waren als statische
+Fabrikmethoden im Paket `web/dto` bequem, erzeugten aber eine Abhängigkeit von `web` nach `domain` — die
+ArchUnit-Regel zu Spec Abschnitt 3 schlug an.
+
+**Entscheidung.** DTOs sind reine Records. Die Übersetzung Entity zu DTO liegt in der Service-Schicht.
+
+**Begründung.** „Entities verlassen nie die Service-Schicht" ist am klarsten durchgesetzt, wenn keine
+Klasse der Web-Schicht eine Entity überhaupt sehen kann. Bei der Gelegenheit fiel ein Fehlalarm derselben
+Regel auf: `..domain..` matchte auch `org.springframework.data.domain.Pageable`. Alle ArchUnit-Muster
+sind jetzt auf `de.tudarmstadt.campus.admin` verankert.
+
+---
+
 ## D-20 — Mindestlänge 12 Zeichen für über die API gesetzte Passwörter
 
 **Kontext.** Die Spec definiert keine Passwortrichtlinie, setzt den Initial-Admin aber auf `admin`.

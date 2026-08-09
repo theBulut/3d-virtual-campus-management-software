@@ -34,7 +34,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 1 | Datenmodell und Flyway-Migrationen | ✅ |
 | 2 | RBAC-Katalog und Seeding | ✅ |
 | 3 | Authentifizierung (JWT, Refresh, Logout) | ✅ |
-| 4 | Autorisierung, Nutzer- und Rollenverwaltung | offen |
+| 4 | Autorisierung, Nutzer- und Rollenverwaltung | ✅ |
 | 5 | Audit-Log | offen |
 | 6 | Content: POI, Gebäude, Beratungszeiten, Medien | offen |
 | 7 | Frontend | offen |
@@ -53,6 +53,15 @@ Abgemeldet wird auf zwei Wegen (siehe `docs/DECISIONS.md` D-24):
 |---|---|
 | `POST /api/auth/logout` | beendet die aktuelle Sitzung; Refresh-Token optional im Rumpf |
 | `POST /api/auth/logout-all` | beendet alle Sitzungen des Kontos, auch auf anderen Geräten |
+
+Dazu kommen die Verwaltungsendpunkte aus Phase 4 unter `/api/users`, `/api/roles` und `/api/permissions`
+— jeder mit `@PreAuthorize` auf einem Berechtigungscode. `GET /api/roles/matrix` liefert die vollständige
+Berechtigungsmatrix als JSON und ist zugleich die Quelle für die Abbildung in Kapitel 4 der Arbeit.
+
+Zwei Regeln gelten über die Berechtigung hinaus: eine Rolle kann nur vergeben werden, wenn sie in der
+Vergabemenge des Aufrufers liegt (`role_grant`), und ein fremdes Konto nur bearbeitet werden, wenn **alle**
+seine Rollen in dieser Menge liegen. Eine Projektleitung erreicht damit weder ein ADMIN- noch ein
+MAINTENANCE_DEV-Konto.
 
 ```bash
 curl -X POST http://localhost:8080/api/auth/login \
