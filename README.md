@@ -33,19 +33,37 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 0 | Fundament: Paketstruktur, Abhängigkeiten, Profile, Fehlerformat | ✅ |
 | 1 | Datenmodell und Flyway-Migrationen | ✅ |
 | 2 | RBAC-Katalog und Seeding | ✅ |
-| 3 | Authentifizierung (JWT, Refresh, Logout) | offen |
+| 3 | Authentifizierung (JWT, Refresh, Logout) | ✅ |
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | offen |
 | 5 | Audit-Log | offen |
 | 6 | Content: POI, Gebäude, Beratungszeiten, Medien | offen |
 | 7 | Frontend | offen |
 | 8 | Härtung, Dokumentation, Evaluation | offen |
 
-Aktuell erreichbar ist ausschließlich `GET /api/health`; jeder andere Pfad antwortet mit `401`, solange
-Phase 3 die Authentifizierung nicht bereitstellt.
-
 Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
-ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`). Außerhalb des
-`dev`-Profils erzwingt das Standardpasswort eine Änderung beim ersten Login.
+ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`).
+
+Verfügbar sind `GET /api/health` sowie `/api/auth/**`: Anmeldung, Token-Erneuerung mit Rotation,
+Abmeldung und das eigene Profil. Jeder andere Pfad antwortet mit `401`, solange die Fachendpunkte aus
+Phase 4 fehlen.
+
+Abgemeldet wird auf zwei Wegen (siehe `docs/DECISIONS.md` D-24):
+
+| Endpunkt | Wirkung |
+|---|---|
+| `POST /api/auth/logout` | beendet die aktuelle Sitzung; Refresh-Token optional im Rumpf |
+| `POST /api/auth/logout-all` | beendet alle Sitzungen des Kontos, auch auf anderen Geräten |
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}'
+```
+
+Solange das Standardpasswort gesetzt ist, enthält das Access-Token außerhalb des `dev`-Profils nur die
+Berechtigung `PROFILE_UPDATE_OWN` — das Konto kann also ausschließlich sein Passwort ändern
+(`POST /api/auth/me/password`, mindestens 12 Zeichen). Danach trägt der nächste Token wieder alle
+Berechtigungen der Rolle.
 
 ## Gesamtsystem starten
 

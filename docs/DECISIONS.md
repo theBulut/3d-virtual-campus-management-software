@@ -249,6 +249,142 @@ die Datenbank ist die zweite Verteidigungslinie; `PoiRepositoryIT` belegt beides
 
 ---
 
+## D-17 — `RoleCode` als eigene Datei neben `RoleCatalog`
+
+**Kontext.** Spec Abschnitt 3 listet im Paketbaum `RoleCatalog.java` mit dem Kommentar „Enum RoleCode +
+statische Matrix"; Abschnitt 2 des Implementierungsplans nennt `PermissionCode`-Enum, `RoleCode`-Enum und
+`RoleCatalog` als drei Artefakte.
+
+**Entscheidung.** Drei Dateien: `PermissionCode.java`, `RoleCode.java`, `RoleCatalog.java`.
+
+**Begründung.** Ein verschachteltes `RoleCatalog.RoleCode` würde an jeder Aufrufstelle mitgeschleppt,
+obwohl der Rollenname das meistgenutzte Symbol im ganzen Projekt ist. Inhaltlich ändert sich nichts: das
+Paket `rbac` enthält dieselben drei Konzepte wie in der Spec.
+
+---
+
+## D-18 — Konsistenztest heißt `RoleCatalogConsistencyIT`
+
+**Kontext.** Der Implementierungsplan nennt den Test `RoleCatalogConsistencyTest`. Er vergleicht den
+Java-Katalog mit dem Datenbank-Seed und braucht dafür zwingend eine Datenbank.
+
+**Entscheidung.** Der Test heißt `RoleCatalogConsistencyIT` und trägt `@Tag("it")`.
+
+**Begründung.** Die Namenskonvention aus D-6 unterscheidet Docker-freie Tests (`*Test`) von solchen mit
+Testcontainers (`*IT`). Ein `*Test`, der ohne Docker scheitert, würde `./mvnw test -DexcludedGroups=it`
+unbrauchbar machen. Die reine Katalogprüfung ohne Datenbank liegt zusätzlich in `RoleCatalogTest`.
+
+---
+
+## D-19 — Logout nimmt das Refresh-Token optional im Rumpf entgegen
+
+**Kontext.** Spec Abschnitt 5.1 verlangt beim Logout das Blacklisten von Access- **und** Refresh-`jti`.
+Die `jti` des Refresh-Tokens steht aber nicht im Access-Token, und der Server führt keine Liste
+ausgegebener Tokens.
+
+**Entscheidung.** `POST /api/auth/logout` akzeptiert einen optionalen Rumpf `{refreshToken}`. Das
+Access-Token wird immer entwertet, das Refresh-Token nur, wenn es mitgeschickt wird und demselben Konto
+gehört.
+
+**Begründung.** Ohne den Rumpf wäre die Anforderung nicht erfüllbar. Der Fremdbesitz-Check verhindert,
+dass jemand mit einem gültigen Access-Token fremde Refresh-Tokens entwertet. Ein Logout ohne
+mitgeschicktes Refresh-Token protokolliert eine Debug-Meldung; die Oberfläche schickt es immer mit.
+
+---
+
+## D-24 — Zwei Abmeldefunktionen: diese Sitzung und alle Sitzungen
+
+**Kontext.** Das Abmelden nach D-19 ist Best-Effort: der Server kann nicht erzwingen, dass der Client
+sein Refresh-Token zurückgibt. Wer es weglässt, hinterlässt ein bis zu sieben Tage gültiges
+Refresh-Token — also genau in dem Fall problematisch, den ein Logout schließen soll.
+
+**Entscheidung.** Zwei getrennte Endpunkte:
+
+| Endpunkt | Wirkung | Mechanismus |
+|---|---|---|
+| `POST /api/auth/logout` | beendet **diese** Sitzung | Redis-Blacklist auf die `jti` (Spec 4.2) |
+| `POST /api/auth/logout-all` | beendet **alle** Sitzungen des Kontos | `token_version++` und `refresh_version++` |
+
+`logout-all` braucht keinen Rumpf: die Identität kommt aus dem signierten Token, und die Zähler wirken
+auf jedes ausgegebene Token, auch auf solche, deren `jti` der Server nie gesehen hat.
+
+**Begründung.** Die Blacklist kann nur widerrufen, was der Client vorlegt — für „von überall abmelden"
+ist sie das falsche Werkzeug. Die Versionszähler aus D-3 leisten genau das, ohne Mitwirkung des Clients.
+Beides als *ein* Endpunkt mit Schalter zu bauen wäre schlechter gewesen: die beiden Fälle haben
+unterschiedliche Nebenwirkungen (ein Gerät gegen alle Geräte), und getrennte Pfade sind in Swagger und
+im `EndpointSecurityTest` eindeutig.
+
+Damit erweitert sich die Liste der Ereignisse aus D-3, die die Zähler erhöhen, um „Abmelden von überall".
+`TokenVersionService.invalidate` muss dabei mitlaufen, sonst würde der Fünf-Minuten-Cache die alten
+Werte weiterliefern.
+
+**Abweichung von der Spec:** ja, `logout-all` ist in Abschnitt 5.1 nicht vorgesehen (Ergänzung).
+
+---
+
+## D-20 — Mindestlänge 12 Zeichen für über die API gesetzte Passwörter
+
+**Kontext.** Die Spec definiert keine Passwortrichtlinie, setzt den Initial-Admin aber auf `admin`.
+
+**Entscheidung.** Über die API gewählte Passwörter brauchen mindestens 12 Zeichen (Bean Validation auf
+`ChangePasswordRequest`). Das geseedete Standardpasswort ist ausgenommen, erzwingt aber eine Änderung
+(siehe D-21).
+
+**Begründung.** Ohne jede Richtlinie stünde in einer Arbeit über Zugriffskontrolle ein Endpunkt, der
+`a` als Passwort akzeptiert. Zwölf Zeichen sind eine bewusste, begründbare Untergrenze und keine
+komplexen Zeichenklassenregeln, die erwiesenermaßen wenig bringen.
+
+---
+
+## D-21 — Erzwungener Passwortwechsel über eingeschränkte Tokens
+
+**Kontext.** Spec Abschnitt 7.1 verlangt, dass das Standardpasswort außerhalb von `dev` „beim ersten
+Login eine Passwortänderung erzwingt". E-7 verlangt zugleich, dass jede Durchsetzung serverseitig
+passiert — ein Hinweis, den nur das Frontend auswertet, wäre zu wenig.
+
+**Entscheidung.** Ist `must_change_password` gesetzt, enthält das ausgestellte Access-Token nur noch die
+Berechtigung `PROFILE_UPDATE_OWN`. Rollen bleiben im Token, damit die Oberfläche den Kontext anzeigen
+kann. Nach erfolgreichem Wechsel entfällt das Flag und der nächste Token trägt wieder alle
+Berechtigungen.
+
+**Begründung.** Das Konto kann damit ausschließlich das eigene Profil und Passwort ändern; jeder andere
+Endpunkt scheitert an `@PreAuthorize`, ohne Sonderfall in der Filterkette. Im laufenden docker-Profil
+verifiziert: `roles: [ADMIN]`, `perms: [PROFILE_UPDATE_OWN]`.
+
+---
+
+## D-22 — `RedisConfig` entfällt zugunsten von `StringRedisTemplate`
+
+**Kontext.** Spec Abschnitt 3 listet `RedisConfig.java` mit einem `RedisTemplate<String,String>`. Spring
+Boot konfiguriert mit `StringRedisTemplate` bereits genau diesen Typ; beide Beans nebeneinander machten
+die Injektion mehrdeutig und der Kontext startete nicht.
+
+**Entscheidung.** `RedisConfig` entfernt, `TokenBlacklistService` und `TokenVersionService` injizieren
+`StringRedisTemplate`.
+
+**Begründung.** Eine eigene Konfigurationsklasse, die ein vorhandenes Framework-Bean dupliziert, ist kein
+Gewinn. Die Spec-Anforderung ist erfüllt — nur eben durch Boot statt durch eigenen Code.
+
+---
+
+## D-23 — Zwei ArchUnit-Regeln präzisiert
+
+**Kontext.** Zwei selbst gesetzte Regeln aus Phase 0 kollidierten mit der Paketstruktur der Spec:
+
+- *Repositories nur aus `..service..`*: `CampusUserDetailsService` und `TokenVersionService` liegen laut
+  Spec Abschnitt 3 im Paket `security` und müssen Konten lesen.
+- *Services hängen nicht von `..web..` ab*: Services geben DTOs zurück, und die liegen laut Spec unter
+  `web/dto`.
+
+**Entscheidung.** Erste Regel erlaubt zusätzlich `..security..`; zweite Regel verbietet jetzt konkret
+Abhängigkeiten auf Klassen mit Namensendung `Controller`.
+
+**Begründung.** Beide Regeln waren strenger formuliert als die Spec verlangt (dort: „Controller
+injizieren keine Repositories", „Entities verlassen nie die Service-Schicht"). Die eigentliche Aussage
+bleibt erhalten und wird weiter geprüft; korrigiert wurde meine Verschärfung, nicht die Spec.
+
+---
+
 ## D-13 — HTTP 422 für unzulässige Statusübergänge
 
 **Kontext.** Spec Abschnitt 4.5 nennt `409 INVALID_STATUS_TRANSITION`, Abschnitt 4.7 nennt „`422`

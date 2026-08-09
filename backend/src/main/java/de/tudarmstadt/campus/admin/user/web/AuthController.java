@@ -67,6 +67,18 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/logout-all")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Von überall abmelden",
+            description = "Beendet alle Sitzungen des eigenen Kontos, auch auf anderen Geräten. "
+                    + "Anders als beim einfachen Abmelden ist dafür kein Token im Rumpf nötig: "
+                    + "die Zähler token_version und refresh_version werden erhöht und entwerten damit "
+                    + "jedes ausgegebene Token.")
+    public ResponseEntity<Void> logoutEverywhere(@AuthenticationPrincipal CampusUserDetails principal) {
+        authService.logoutEverywhere(principal.getUserId());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Eigenes Konto",

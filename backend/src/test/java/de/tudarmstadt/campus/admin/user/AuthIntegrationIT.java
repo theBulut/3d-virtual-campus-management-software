@@ -152,6 +152,68 @@ class AuthIntegrationIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("TOKEN_STALE"));
     }
 
+    /**
+     * The line between the two functions: a plain logout ends this session and nothing else.
+     */
+    @Test
+    void aPlainLogoutLeavesOtherSessionsAlone() throws Exception {
+        account("logout_one_device", RoleCode.PERSONAL);
+        String deviceA = accessTokenFor("logout_one_device");
+        String deviceB = accessTokenFor("logout_one_device");
+
+        mockMvc.perform(post("/api/auth/logout").header(HttpHeaders.AUTHORIZATION, "Bearer " + deviceA))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + deviceA))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + deviceB))
+                .andExpect(status().isOk());
+    }
+
+    /**
+     * Logging out everywhere raises both version counters, so tokens the server has never seen die too.
+     * That is why this needs no request body at all.
+     */
+    @Test
+    void loggingOutEverywhereEndsEverySession() throws Exception {
+        account("logout_all_devices", RoleCode.PERSONAL);
+        String deviceA = accessTokenFor("logout_all_devices");
+
+        String sessionB = mockMvc.perform(login("logout_all_devices", PASSWORD)).andReturn()
+                .getResponse().getContentAsString();
+        String accessB = JsonPath.read(sessionB, "$.accessToken");
+        String refreshB = JsonPath.read(sessionB, "$.refreshToken");
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessB))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/logout-all")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + deviceA))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + deviceA))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_STALE"));
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessB))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_STALE"));
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + refreshB + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_STALE"));
+
+        // The account itself stays usable; only the old sessions are gone.
+        mockMvc.perform(login("logout_all_devices", PASSWORD)).andExpect(status().isOk());
+    }
+
+    @Test
+    void loggingOutEverywhereRequiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/auth/logout-all"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    }
+
     @Test
     void refreshRotatesThePairAndRevokesTheOldRefreshToken() throws Exception {
         account("refresh_user", RoleCode.PERSONAL);

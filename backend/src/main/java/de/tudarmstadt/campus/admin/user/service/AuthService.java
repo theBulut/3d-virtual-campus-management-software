@@ -131,6 +131,26 @@ public class AuthService {
         }
     }
 
+    /**
+     * Ends every session of the account, on this device and on all others.
+     * <p>
+     * Unlike {@link #logout} this does not rely on the client handing back its tokens: raising both
+     * counters makes every outstanding access and refresh token stale at once, no matter where it is
+     * (spec section 4.2, docs/DECISIONS.md D-24). The blacklist is not involved — it can only revoke
+     * tokens whose {@code jti} the server has seen.
+     */
+    @Transactional
+    public void logoutEverywhere(long userId) {
+        AdminUser user = loadUser(userId);
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        user.setRefreshVersion(user.getRefreshVersion() + 1);
+        adminUsers.save(user);
+
+        // Without this the filter would keep answering from the five minute cache.
+        tokenVersions.invalidate(userId);
+        log.info("Ended all sessions of '{}'", user.getUsername());
+    }
+
     @Transactional(readOnly = true)
     public CurrentUserResponse currentUser(long userId) {
         return toResponse(loadUser(userId));
