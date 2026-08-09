@@ -1,5 +1,6 @@
 package de.tudarmstadt.campus.admin.common.exception;
 
+import de.tudarmstadt.campus.admin.audit.service.AuditService;
 import de.tudarmstadt.campus.admin.common.dto.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -27,6 +28,12 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private final AuditService auditService;
+
+    public GlobalExceptionHandler(AuditService auditService) {
+        this.auditService = auditService;
+    }
+
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ApiError> handleApiException(ApiException ex, HttpServletRequest request) {
         return build(ex.getStatus(), ex.getCode(), ex.getMessage(), request, null);
@@ -48,10 +55,13 @@ public class GlobalExceptionHandler {
      * intercepts the exception before Spring Security's {@code ExceptionTranslationFilter} can, so
      * without it every 403 would be reported as 500 by the catch-all below.
      * <p>
-     * Phase 5 writes the {@code ACCESS_DENIED} audit entry here for the same reason.
+     * It is also the only place that sees these denials, which is why the {@code ACCESS_DENIED} audit
+     * entry is written here rather than in {@code RestAccessDeniedHandler} (docs/DECISIONS.md D-10).
      */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        auditService.record("ACCESS_DENIED", "AUTH", request.getRequestURI(), false,
+                "ACCESS_DENIED", null, null);
         return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED",
                 "Für diese Aktion fehlt Ihnen die erforderliche Berechtigung.", request, null);
     }
