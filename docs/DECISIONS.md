@@ -534,3 +534,62 @@ korrigieren.
 bleibt für Invarianten (`LAST_ADMIN_PROTECTED` und Verwandte). Umgesetzt wird das in Phase 6.
 
 **Abweichung von der Spec:** ja (Abschnitt 4.5).
+
+## D-34 — Beratungszeiten veröffentlicht nur `CONSULTATION_UPDATE_ANY`
+
+**Kontext.** `consultation.is_published` hat in der Spec keinen Eigentümer. `PERSONAL` hält
+`CONSULTATION_UPDATE_OWN` und könnte damit eigene Einträge selbst veröffentlichen — POIs durchlaufen
+einen Freigabe-Workflow (E-4), Beratungszeiten hätten dann gar keine Qualitätskontrolle.
+
+**Entscheidung.** `published` wird nur übernommen, wenn der Aufrufer `CONSULTATION_UPDATE_ANY` hält;
+dieselbe Berechtigung erlaubt als einzige, ein Angebot einer anderen Person zuzuordnen. Ohne sie wird das
+Feld stillschweigend ignoriert statt die Anfrage abzuweisen. Wer ein Angebot anlegt, wird zuständig; ein
+späteres Update ohne `responsibleUserId` lässt die Zuständigkeit unverändert.
+
+**Begründung.** `PERSONAL` pflegt Inhalte, die Projektleitung gibt frei — dieselbe Trennung wie beim POI,
+nur ohne eigenen Statusautomaten, weil ein Beratungsangebot keine vier Zustände braucht. Das Ignorieren
+statt Abweisen hält den Frontend-Fall einfach: dieselbe Maske kann das Feld anzeigen (deaktiviert) und
+denselben Body senden. Dass die Freigabe nicht heimlich die Zuständigkeit übernimmt, ist der zweite Teil:
+sonst hätte jede Veröffentlichung den Eintrag dem Fachgebiet entzogen, das ihn pflegt.
+
+---
+
+## D-35 — Fehlende Primitive im Request-Body sind `false`, kein Fehler
+
+**Kontext.** Jackson 3 hat `FAIL_ON_NULL_FOR_PRIMITIVES` standardmäßig aktiviert (Jackson 2: aus). Ein
+`POST /api/buildings` mit `{"code":"S1|03","nameDe":"…"}` — ohne das optionale `published` — endete
+deshalb in einer `HttpMessageNotReadableException`. Die kennzeichnet Spring nicht als `ErrorResponse`,
+also fiel sie in den Catch-all des `GlobalExceptionHandler`: **HTTP 500 für einen gültigen Request.**
+Gefunden von `BuildingIT`, nicht von der Berechtigungsmatrix — die prüft Endpunkte mit vollständigem Body.
+
+**Entscheidung.** Zwei Änderungen: `spring.jackson.deserialization.fail-on-null-for-primitives: false`,
+und `HttpMessageNotReadableException` wird explizit auf `400 MALFORMED_REQUEST` abgebildet.
+
+**Begründung.** Ein fehlendes Flag bedeutet in JSON `false`; welche Felder Pflicht sind, sagt Bean
+Validation, nicht der Unterschied zwischen `boolean` und `Boolean`. Und ein Client, der unlesbares JSON
+schickt, bekommt 400 — 500 hätte einen Serverfehler behauptet, wo keiner vorliegt (NFA-07). Der Code
+`MALFORMED_REQUEST` ergänzt den Katalog aus Abschnitt 4.7.
+
+**Abweichung von der Spec:** Ergänzung (Fehlercode `MALFORMED_REQUEST` in Abschnitt 4.7).
+
+---
+
+## D-36 — Zwei JPA-Fallstricke, die nur die Antwort betreffen
+
+**Kontext.** Zwei Tests aus Phase 6 schlugen mit korrekten Datenbankzuständen, aber falschen Antworten
+fehl — beides Fälle, in denen der Zustand im Speicher und der in der Datenbank auseinanderlaufen.
+
+**Entscheidung.**
+
+- `PoiService` schreibt Statusübergänge mit `saveAndFlush`. `is_published` ist eine Generated Column
+  (`@Generated(INSERT, UPDATE)`); Hibernate liest sie erst nach dem tatsächlichen Update neu. Ohne Flush
+  meldete die Antwort auf `POST /api/pois/{id}/publish` `status: PUBLISHED` bei `published: false`.
+- `ConsultationService.addEvent` speichert den neuen Termin über das Termin-Repository, nicht per Kaskade
+  über das Angebot. Das Angebot ist bereits persistent, `save` geht also in `merge`, und die Kaskade
+  vergibt die ID an eine **Kopie** des Termins — das zurückgegebene Objekt blieb ohne ID, das Feld fiel
+  wegen `default-property-inclusion: non_null` ganz aus der Antwort, und der Client konnte den gerade
+  angelegten Termin nicht ansprechen.
+
+**Begründung.** Beide Male war die Persistenz korrekt und nur die Rückgabe falsch — die Art Fehler, die
+ein Test, der nach dem Aufruf frisch aus der Datenbank liest, nie sieht. Die Tests prüfen deshalb die
+HTTP-Antwort, nicht den Repository-Zustand.

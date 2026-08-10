@@ -36,7 +36,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 3 | Authentifizierung (JWT, Refresh, Logout) | ✅ |
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | ✅ |
 | 5 | Audit-Log | ✅ |
-| 6 | Content: POI, Gebäude, Beratungszeiten, Medien | offen |
+| 6 | Content: POI, Gebäude, Beratungszeiten, Medien | ✅ |
 | 7 | Frontend | offen |
 | 8 | Härtung, Dokumentation, Evaluation | offen |
 
@@ -60,6 +60,34 @@ Berechtigungsmatrix als JSON und ist zugleich die Quelle für die Abbildung in K
 Jede schreibende Operation und jeder abgewiesene Zugriff landen im Audit-Log (`GET /api/audit`).
 `AUDIT_READ` sieht alles, `AUDIT_READ_CONTENT` ausschließlich Einträge zu POI, Gebäude, Beratungszeiten
 und Medien. Passwörter, Hashes und Tokens werden beim Schreiben maskiert und stehen nie im Log.
+
+### Inhalte und Freigabe-Workflow
+
+POIs unter `/api/pois` durchlaufen vier Zustände. Jeder Übergang hat einen eigenen Endpunkt, eine eigene
+Berechtigung und eine eigene Audit-Aktion — ein gewöhnliches `PUT` kann nichts veröffentlichen:
+
+```
+DRAFT ──submit──▶ IN_REVIEW ──publish──▶ PUBLISHED ──archive──▶ ARCHIVED
+  ▲                   │
+  └────reject─────────┘   (Begründung ist Pflicht)
+```
+
+| Aktion | Endpunkt | Berechtigung |
+|---|---|---|
+| Einreichen | `POST /api/pois/{id}/submit` | `POI_SUBMIT_REVIEW` + Eigentum |
+| Freigeben | `POST /api/pois/{id}/publish` | `POI_PUBLISH` |
+| Zurückweisen | `POST /api/pois/{id}/reject` | `POI_PUBLISH` |
+| Archivieren | `POST /api/pois/{id}/archive` | `POI_PUBLISH` |
+| Bearbeiter setzen | `PATCH /api/pois/{id}/assignee` | `POI_ASSIGN` |
+
+`PROJEKTMITARBEITER` erstellt und reicht ein, veröffentlichen kann nur die Projektleitung. `POI_UPDATE_OWN`
+greift nur bei eigenen oder zugewiesenen POIs und nur solange sie nicht veröffentlicht sind; jeder andere
+Übergang antwortet mit `422 INVALID_STATUS_TRANSITION`. Dazu kommen Gebäude (`/api/buildings`),
+Beratungszeiten mit ihren Terminen (`/api/consultations`), Bild-Uploads (`/api/media`, höchstens 5 MB,
+PNG/JPEG/WebP) und der CSV-Export (`GET /api/export/pois.csv`).
+
+Ohne Anmeldung erreichbar ist ausschließlich `/api/public/**` — veröffentlichte POIs, Gebäude und
+Beratungszeiten, in eigenen, bewusst schmalen DTOs ohne Status, Autor, Bearbeiter oder Zeitstempel.
 
 Zwei Regeln gelten über die Berechtigung hinaus: eine Rolle kann nur vergeben werden, wenn sie in der
 Vergabemenge des Aufrufers liegt (`role_grant`), und ein fremdes Konto nur bearbeitet werden, wenn **alle**
@@ -112,7 +140,18 @@ cd backend
 
 Erwartet PostgreSQL (`campus`, `postgres`/`postgres`) und Redis auf localhost, oder Überschreibung über
 `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`,
-`SPRING_DATA_REDIS_HOST`. Das `dev`-Profil lädt zusätzlich die Demo-Migrationen aus `db/demo`.
+`SPRING_DATA_REDIS_HOST`. Das `dev`-Profil lädt zusätzlich die Demo-Migrationen aus `db/demo`: fünf
+Gebäude, zwölf POIs über alle vier Zustände, vier Beratungsangebote und ein Konto je Rolle. Alle
+Demo-Konten haben das Passwort `demo-passwort`; die Daten werden außerhalb von `dev` nie geladen
+(`docs/DECISIONS.md` D-8).
+
+| Konto | Rolle |
+|---|---|
+| `demo_admin` | ADMIN |
+| `demo_leitung` | PROJEKTLEITER |
+| `demo_mitarbeit` | PROJEKTMITARBEITER |
+| `demo_personal` | PERSONAL |
+| `demo_devops` | MAINTENANCE_DEV |
 
 ### Frontend
 
