@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -64,6 +65,20 @@ public class GlobalExceptionHandler {
                 "ACCESS_DENIED", null, null);
         return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED",
                 "Für diese Aktion fehlt Ihnen die erforderliche Berechtigung.", request, null);
+    }
+
+    /**
+     * A body that cannot be read at all — broken JSON, a string where a number belongs, a missing
+     * primitive. Spring does not mark this one as an {@link ErrorResponse}, so without this handler the
+     * catch-all below would answer 500 for what is plainly a client error (spec section 4.7).
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex,
+                                                  HttpServletRequest request) {
+        // The cause names field and type; that belongs in the log, not in the response (NFA-07).
+        log.debug("Unreadable request body for {} {}", request.getMethod(), request.getRequestURI(), ex);
+        return build(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST",
+                "Der Inhalt der Anfrage konnte nicht gelesen werden.", request, null);
     }
 
     @ExceptionHandler(AuthenticationException.class)

@@ -26,6 +26,19 @@ spring:
   jackson:
     # Keeps optional members such as ApiError.fieldErrors out of the response instead of emitting null.
     default-property-inclusion: non_null
+    deserialization:
+      # Jackson 3 turned this on by default: an omitted boolean or number in a record request would end
+      # the request with an unreadable body. An absent flag means false here, as everywhere in JSON
+      # (docs/DECISIONS.md D-35). Required fields are declared through Bean Validation, not through the
+      # difference between a primitive and a wrapper.
+      fail-on-null-for-primitives: false
+
+  servlet:
+    multipart:
+      # Spec section 5.4 caps uploads at 5 MB. MediaService checks it again, so the limit also holds
+      # when this configuration is ever loosened.
+      max-file-size: 5MB
+      max-request-size: 6MB
 
 server:
   port: ${SERVER_PORT:8080}
