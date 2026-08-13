@@ -593,3 +593,157 @@ fehl — beides Fälle, in denen der Zustand im Speicher und der in der Datenban
 **Begründung.** Beide Male war die Persistenz korrekt und nur die Rückgabe falsch — die Art Fehler, die
 ein Test, der nach dem Aufruf frisch aus der Datenbank liest, nie sieht. Die Tests prüfen deshalb die
 HTTP-Antwort, nicht den Repository-Zustand.
+
+---
+
+## D-37 — `react-router-dom` als einzige neue Frontend-Abhängigkeit
+
+**Kontext.** Spec Abschnitt 6 verlangt Routen, `ProtectedRoute` und `RequirePermission` — also einen
+Router. Das Skelett hatte keinen.
+
+**Entscheidung.** `react-router-dom` 7 aufnehmen. Sonst keine weitere Bibliothek: kein State-Management,
+keine UI-Bibliothek, kein Formular-Framework, kein Data-Fetching-Layer.
+
+**Begründung.** Ein Router lässt sich nicht sinnvoll selbst schreiben, alles andere schon: Der Zustand
+dieser Anwendung ist die Sitzung (ein Context), die Formulare haben höchstens sechs Felder, und die
+Fehlermeldungen kommen ohnehin von Bean Validation aus dem Backend. Jede zusätzliche Abhängigkeit wäre
+in Kapitel 3 der Arbeit zu rechtfertigen, ohne dass sie eine Anforderung erfüllt.
+
+---
+
+## D-38 — Frontend-Guards zeigen an, sie schützen nicht
+
+**Kontext.** `Can`, `RequirePermission` und der Sidebar-Filter entscheiden anhand der
+Berechtigungsliste aus dem Token, was sichtbar ist. Das sieht wie Autorisierung aus, ist aber keine.
+
+**Entscheidung.** Die Guards blenden ausschließlich aus. Jede Prüfung existiert zusätzlich serverseitig
+in der `@PreAuthorize`-Annotation der Controller-Methode. Der Hinweis steht als Kommentar über `Can.jsx`,
+als Fußnote in der Sidebar und auf der 403-Seite.
+
+**Begründung.** Die Spec fordert diesen Vermerk ausdrücklich (Abschnitt 6). Er ist auch inhaltlich
+wichtig: In Szenario S-18 wird eine gesperrte Route direkt über die URL aufgerufen — dann greift der
+Guard, aber der eigentliche Beleg ist, dass der zugehörige API-Aufruf ebenfalls mit 403 endet und im
+Audit-Log erscheint. Die Berechtigungsliste im Token ist Anzeigewissen, keine Vertrauensgrundlage.
+
+---
+
+## D-39 — Demo-Daten über ein zusätzliches Profil statt über einen Schalter
+
+**Kontext.** Die Demo-Daten lagen bisher nur am `dev`-Profil (D-8). Für eine Vorführung im Container
+fehlte damit ein Weg, sie zu bekommen, ohne das Backend außerhalb von Docker zu starten. Ein Schalter
+`CAMPUS_SEED_DEMO=true` im `docker`-Profil wäre die naheliegende Alternative gewesen.
+
+**Entscheidung.** Ein eigenes Profil `demo`, das ausschließlich `classpath:db/demo` auf die
+Flyway-Locations legt, kombinierbar mit jedem anderen Profil: `SPRING_PROFILES_ACTIVE=docker,demo`. Dazu
+`docker-compose.demo.yml` als Overlay und `DemoProfileWarning`, das bei aktivem Profil eine Warnung ins
+Log schreibt.
+
+**Begründung.** Ein Profil ist die Einheit, in der Spring Konfiguration ohnehin trennt, und es ist an der
+Kommandozeile sichtbar — anders als eine Umgebungsvariable, die in einer `.env` versehentlich überleben
+kann. Vor allem aber: dasselbe Image liefert beide Fälle. `docker compose up` startet exakt das Artefakt
+der Vorführung, nur ohne die Demo-Daten, sodass „mit Demo-Daten" und „ausgeliefert" sich in genau einer
+Zeile unterscheiden. Der Seed selbst wird nicht bloß ignoriert, sondern nicht ausgeführt: ohne das Profil
+ist seine Location nicht auf der Liste.
+
+**Nebenwirkung.** Die SQL-Datei liegt im Jar, auch in einem Produktivbuild. Das ist hinnehmbar, weil sie
+ohne die Location nie läuft; wer es härter braucht, schließt `db/demo/**` im Maven-Build aus.
+
+---
+
+## D-40 — `EXTERNE_PERSON` wird vergeben; INV-4 ist ersetzt
+
+**Kontext.** Die Spec sagte in Abschnitt 1.1 und INV-4: Diese Rolle wird **keinem** Nutzer zugewiesen,
+technisch realisiert durch `permitAll` auf `/api/public/**`. Mit der geänderten Aufgabenstellung
+registrieren sich internationale Studierende selbst, spielen den 3D-Campus und bekommen ihren Spielstand
+an ihr Konto gebunden — die Rolle braucht also Konten.
+
+Drei Stellen standen dem im Weg, alle geprüft: `role.is_assignable = FALSE` aus `V4`, die Prüfung in
+`RoleAssignmentService.assign`, und — die unauffälligste — `assertCanManage`. Diese Methode verlangt,
+dass **alle** Rollen des Zielkontos in der Vergabemenge des Aufrufers liegen. Da `EXTERNE_PERSON` in
+keiner Vergabemenge stand, wäre ein selbstregistriertes Konto für **jede** Administration unerreichbar
+gewesen: Die Registrierung hätte funktioniert, das Hochstufen nicht.
+
+**Entscheidung.** `V5` setzt `is_assignable = TRUE` und trägt die Rolle in die Vergabemengen von `ADMIN`
+und `PROJEKTLEITER` ein. Beim Hochstufen wird sie **nicht** entzogen — ein Konto trägt dann
+`[EXTERNE_PERSON, PROJEKTMITARBEITER]`. INV-4 entfällt; das Flag `is_assignable` bleibt als Mechanismus
+erhalten, trägt aber keine Rolle mehr.
+
+**Begründung.** Die Rolle beschreibt jetzt, was jemand *ist* (Spieler), nicht mehr, was er *nicht ist*.
+Dass sie beim Hochstufen bleibt, hält INV-3 gültig, macht das Herabstufen zur exakten Umkehroperation
+und trifft die Sache: Eine Projektleitung darf denselben Campus spielen, den sie pflegt. Nebeneffekt für
+die Arbeit: Die drei Berechtigungen dieser Rolle waren bisher tot (Punkt K-4 des Spec-Reviews) — jetzt
+tragen sie das Spiel.
+
+**Abweichung von der Spec:** ja (Abschnitt 1.1, INV-4, Abschnitt 1.4).
+
+---
+
+## D-41 — Der Spielstand ist für das Backend undurchsichtig
+
+**Kontext.** Spielstände müssen an das Konto gebunden sein. Wie sie aussehen, weiß nur der Unity-Client,
+und es wird sich mit dem Spiel ändern.
+
+**Entscheidung.** Eine Tabelle `game_state` mit `user_id` als Primärschlüssel und einer JSONB-Spalte, die
+unverändert gespeichert und zurückgegeben wird. Geprüft wird ausschließlich: gültiges JSON, höchstens
+64 KB. `GET` antwortet mit `204`, solange nichts gespeichert wurde.
+
+**Begründung.** Jedes Feld, das das Backend kennt, ist ein Feld, für das es eine Migration braucht.
+Ein Spielstand ist Zustand des Clients, kein Fachdatum der Verwaltung. Die Prüfung auf gültiges JSON ist
+kein Widerspruch dazu: JSONB würde ein kaputtes Dokument mit einem Constraint-Fehler und damit 500
+quittieren — 400 mit `GAME_STATE_MALFORMED` ist die ehrlichere Antwort. Das `204` ist der Fall „neu
+registriert": Der Client startet dann ein neues Spiel, ohne dass jemand eine Startdatei anlegen muss.
+
+Kein eigener Berechtigungscode: Der Spielstand gehört dem Aufrufer, die Konto-ID kommt aus dem Token und
+nie aus dem Pfad. Damit ist es dieselbe Art Eigendatum wie das Profil, und die Matrix bleibt bei 37
+Einträgen.
+
+---
+
+## D-42 — Die Szene ist berechtigungsabhängig, nicht parametrisierbar
+
+**Kontext.** `GET /api/game/scene` liefert POIs, Gebäude und Beratungszeiten für den Unity-Client. Eine
+Projektleitung soll im Spiel auch sehen, was noch im Entwurf ist; Studierende nicht.
+
+**Entscheidung.** Ein Endpunkt, gesichert mit `POI_READ_PUBLISHED`. Der Umfang der Antwort ergibt sich aus
+den Authorities des Aufrufers: mit `POI_READ_ALL`, `BUILDING_READ_ALL` beziehungsweise
+`CONSULTATION_READ_ALL` sind unveröffentlichte Inhalte enthalten, und **nur dann** trägt jedes Objekt sein
+`status`- beziehungsweise `published`-Feld. Kein Query-Parameter, kein Vorschaumodus.
+
+**Begründung.** Ein Parameter wie `?includeDrafts=true` wäre eine zweite Wahrheit neben der Matrix —
+prüfen müsste man am Ende trotzdem die Berechtigung. So gibt es nur eine Regel, und sie steht dort, wo
+alle anderen auch stehen. Dass das Statusfeld für Spielende ganz fehlt, ist Datenminimierung derselben
+Art wie in den `publicapi`-DTOs: Was jemand nicht wissen muss, wird nicht mitgeschickt.
+
+Für Kapitel 4 der Arbeit ist das der stärkste Beleg des ganzen Projekts: **dieselbe URL, zwei Konten,
+fünf gegen zwölf Objekte** — das Rollenmodell formt nicht nur die Verwaltung, sondern das Produkt.
+
+---
+
+## D-43 — Der WebGL-Build liegt im Frontend-Container
+
+**Kontext.** Das Unity-Spiel muss ausgeliefert werden. Möglich wären ein eigener Container, ein CDN oder
+der vorhandene nginx des Frontends.
+
+**Entscheidung.** Der Build landet unter `frontend/public/game/` und wird vom Frontend-nginx ausgeliefert;
+`nginx.conf` bekommt den MIME-Typ `application/wasm` und Cache-Header für `/game/`. Solange kein Build
+vorhanden ist, zeigt `/play` die Szenendaten als Liste.
+
+**Begründung.** Gleicher Origin heißt: kein CORS, keine zweite Herkunft für Tokens, ein einziges
+`docker compose up`. Der Rückfall auf die Liste ist kein Platzhalter, sondern nützlich — er zeigt genau
+das, was das Spiel geladen bekäme, und macht die Datenkette prüfbar, bevor Unity installiert ist.
+
+---
+
+## D-44 — Die Token-Hoheit bleibt im Frontend
+
+**Kontext.** Unity muss die API mit einem gültigen Token aufrufen. Access-Tokens leben 15 Minuten, eine
+Spielsitzung dauert länger.
+
+**Entscheidung.** Das Frontend besitzt die Sitzung. Unity bekommt das Token nach dem Laden über
+`SendMessage` und fragt vor jedem Aufruf über die `.jslib`-Brücke (`window.campusBridge.requestToken`)
+den aktuellen Stand ab. Unity speichert nichts.
+
+**Begründung.** Die Erneuerungs- und Rotationslogik existiert bereits in `api/client.js` und ist getestet.
+Sie ein zweites Mal in C# zu bauen hieße, zwei Implementierungen derselben Regel synchron zu halten —
+und die zweite wäre die, die niemand testet. Dass Unity jedes Mal nachfragt statt eine Kopie zu halten,
+kostet nichts und macht die Rotation für das Spiel unsichtbar.

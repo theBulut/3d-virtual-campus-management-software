@@ -37,11 +37,47 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | ✅ |
 | 5 | Audit-Log | ✅ |
 | 6 | Content: POI, Gebäude, Beratungszeiten, Medien | ✅ |
-| 7 | Frontend | offen |
+| 7 | Frontend | teilweise — Kern steht, siehe unten |
 | 8 | Härtung, Dokumentation, Evaluation | offen |
+| 9 | Registrierung und Spielerkonten | ✅ |
+| 10 | Szenen-API und Spielstand für Unity | ✅ |
+| 11 | Unity-Anbindung (PoC, WebGL-Einbettung) | Brücke steht, Build offen |
 
 Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
 ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`).
+
+### Zwei Zugänge, ein Rollenmodell
+
+Die Anwendung ist zweierlei: ein 3D-Campus für internationale Studierende und das Werkzeug, mit dem seine
+Inhalte gepflegt werden. Beides hängt am selben Rollenmodell.
+
+```
+Landing (/)  →  Registrieren  →  Konto mit Rolle EXTERNE_PERSON  →  /play   Campus spielen
+                                          │
+                        Administration stuft hoch (Rolle bleibt erhalten)
+                                          ↓
+                          zusätzlich /admin  ·  im Spiel auch Entwürfe sichtbar
+```
+
+Wer sich über `POST /api/auth/register` anmeldet, bekommt genau die Rolle `EXTERNE_PERSON` — die Anfrage
+kennt kein Rollenfeld. Angemeldet wird mit Benutzername **oder** E-Mail-Adresse. Registrierung und
+Anmeldung sind die einzigen Endpunkte ohne Sitzung und deshalb mit einer Redis-Bremse versehen
+(10 Anmeldeversuche / 15 min, 5 Registrierungen / Stunde je Adresse).
+
+`GET /api/game/scene` liefert POIs, Gebäude und Beratungszeiten in einem Aufruf — und **derselbe Aufruf
+antwortet je nach Berechtigung anders**: Studierende sehen die freigegebenen Inhalte, wer
+`POI_READ_ALL` hält, zusätzlich Entwürfe und Eingereichtes mit ihrem Status. `GET`/`PUT /api/game/state`
+speichert den Spielstand am Konto; ein neues Konto bekommt `204` und beginnt von vorn.
+
+```bash
+# Dieselbe URL, zwei Rollen, zwei Ergebnisse
+curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_studi)"   | jq '.pois | length'   # 5
+curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_leitung)" | jq '.pois | length'   # 12
+```
+
+Die Unity-Anbindung liegt in [game/](game/) — fünf C#-Skripte und ein JavaScript-Plugin, die ohne
+Änderung in das FEC-Projekt übernommen werden können. Solange kein WebGL-Build unter
+`frontend/public/game/` liegt, zeigt `/play` dieselben Daten als Liste.
 
 Unter `/api/auth/**` liegen Anmeldung, Token-Erneuerung mit Rotation, Abmeldung und das eigene Profil.
 Ohne Token antwortet jeder Pfad außer `/api/health` und `/api/auth/login|refresh` mit `401`.
@@ -94,6 +130,31 @@ Vergabemenge des Aufrufers liegt (`role_grant`), und ein fremdes Konto nur bearb
 seine Rollen in dieser Menge liegen. Eine Projektleitung erreicht damit weder ein ADMIN- noch ein
 MAINTENANCE_DEV-Konto.
 
+### Oberfläche
+
+Die Oberfläche ist auf die Teile ausgerichtet, die das Rollenmodell sichtbar machen. Vorhanden sind:
+
+| Seite | Route | Sichtbar ab |
+|---|---|---|
+| Startseite, Anmeldung, Registrierung, 403-Seite | `/`, `/login`, `/register` | öffentlich |
+| Campus-Spiel (Unity WebGL) | `/play` | `POI_READ_PUBLISHED` |
+| Mein Profil, Passwort ändern | `/profile` | jedes Konto |
+| Dashboard mit den eigenen Berechtigungen | `/admin` | jedes Konto |
+| Nutzerliste, Konto anlegen | `/admin/users`, `/admin/users/new` | `USER_READ`, `USER_CREATE` |
+| Konto mit Rollenvergabe und Sperre | `/admin/users/:id` | `USER_READ` |
+| Rollen & Rechte (vollständige Matrix) | `/admin/roles/matrix` | `ROLE_READ` |
+| POI-Liste und -Editor mit Workflow | `/admin/pois`, `/admin/pois/:id` | `POI_READ_ALL` |
+| Freigabe-Warteschlange | `/admin/pois/review` | `POI_PUBLISH` |
+| Audit-Log | `/admin/audit` | `AUDIT_READ` oder `AUDIT_READ_CONTENT` |
+
+Die Sidebar blendet Punkte anhand der Berechtigungsliste aus dem Token aus, `Can` verbirgt einzelne
+Schaltflächen. Beides ist Bedienkomfort und **keine** Absicherung: Wer eine gesperrte Route direkt über
+die URL aufruft, sieht die 403-Seite, und der zugehörige API-Aufruf wird ebenfalls mit 403 abgewiesen und
+im Audit-Log vermerkt (`docs/DECISIONS.md` D-38).
+
+Noch nicht gebaut: Gebäude- und Beratungszeiten-Masken, Medien-Upload, Nutzer bearbeiten und die
+System-Seite. Die zugehörigen Endpunkte existieren und sind getestet.
+
 ```bash
 curl -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
@@ -118,6 +179,20 @@ docker compose up --build
 Es sind keine Vorbereitungsschritte nötig. Ohne `JWT_SECRET` erzeugt das Backend beim Start ein
 zufälliges Secret — praktisch für lokale Läufe, aber jeder Neustart entwertet alle ausgegebenen Tokens.
 Für stabile Sitzungen `.env.example` nach `.env` kopieren und `JWT_SECRET` setzen.
+
+### Mit Demo-Daten (Vorführung, manuelle Tests)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+```
+
+Das Overlay setzt beim Backend `SPRING_PROFILES_ACTIVE=docker,demo`; nur dieses Profil legt
+`classpath:db/demo` auf die Flyway-Liste. Damit entstehen sieben Konten (Passwort überall
+`demo-passwort`), fünf Gebäude, zwölf POIs über alle vier Zustände und vier Beratungsangebote — die
+vollständige Liste steht in [docs/DEMO_DATA.md](docs/DEMO_DATA.md).
+
+Es ist dasselbe Image wie oben: `docker compose up` startet exakt dasselbe Artefakt ohne diese Daten. Für
+einen sauberen Anfangszustand vorher `docker compose down -v`.
 
 > **Beim Wechsel von einem älteren Stand:** das Skelett hatte `ddl-auto=update` und hat die Tabellen
 > `users` und `admins` angelegt. Flyway bricht auf einem nicht-leeren Schema ohne History-Tabelle ab. Vor
@@ -152,6 +227,7 @@ Demo-Konten haben das Passwort `demo-passwort`; die Daten werden außerhalb von 
 | `demo_mitarbeit` | PROJEKTMITARBEITER |
 | `demo_personal` | PERSONAL |
 | `demo_devops` | MAINTENANCE_DEV |
+| `demo_studi` | EXTERNE_PERSON (mit Spielstand) |
 
 ### Frontend
 
@@ -161,7 +237,17 @@ npm install
 npm run dev
 ```
 
-Der Vite-Dev-Server proxyt `/api` auf `http://localhost:8080`.
+Der Vite-Dev-Server läuft auf http://localhost:5173 und proxyt `/api` auf `http://localhost:8080`.
+
+**Für eine Vorführung mit den Demo-Konten** muss das Backend im `dev`-Profil laufen — das `docker`-Profil
+lädt die Demo-Daten bewusst nicht. Läuft schon ein Compose-Stack, dessen Backend zuerst stoppen, damit
+Port 8080 frei wird:
+
+```bash
+docker compose up -d db redis          # Datenbank und Redis genügen
+cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+cd frontend && npm run dev             # zweites Terminal
+```
 
 ## Tests
 
