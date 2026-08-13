@@ -62,5 +62,12 @@ campus:
     username: ${CAMPUS_ADMIN_USERNAME:admin}
     password: ${CAMPUS_ADMIN_PASSWORD:admin}
     email: ${CAMPUS_ADMIN_EMAIL:admin@localhost}
+  rate-limit:
+    # The two endpoints reachable without a session. Registration is open to everyone since the game
+    # exists, so a brake is not optional (docs/DECISIONS.md D-40).
+    login-attempts: ${CAMPUS_LOGIN_ATTEMPTS:10}
+    login-window: ${CAMPUS_LOGIN_WINDOW:PT15M}
+    registrations-per-address: ${CAMPUS_REGISTRATIONS_PER_ADDRESS:5}
+    registration-window: ${CAMPUS_REGISTRATION_WINDOW:PT1H}
   seed-demo: ${CAMPUS_SEED_DEMO:false}
   media-path: ${CAMPUS_MEDIA_PATH:./data/media}

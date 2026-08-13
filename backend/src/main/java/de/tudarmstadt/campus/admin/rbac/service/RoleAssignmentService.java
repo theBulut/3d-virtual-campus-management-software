@@ -69,7 +69,9 @@ public class RoleAssignmentService {
 
         AuditContext.before("roles", roles.findRoleNamesByUserId(targetUserId));
 
-        // INV-4: EXTERNE_PERSON exists for the matrix and is never held by anyone.
+        // The is_assignable flag stays as the mechanism, but no role carries it any more:
+        // EXTERNE_PERSON became assignable when self-registration arrived (D-40). The check remains the
+        // single place where a future non-assignable role would be refused.
         if (!role.isAssignable()) {
             throw new BadRequestException("ROLE_NOT_ASSIGNABLE",
                     "Die Rolle " + roleName + " kann keinem Konto zugewiesen werden.");

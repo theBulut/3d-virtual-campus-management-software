@@ -5,9 +5,11 @@ import de.tudarmstadt.campus.admin.common.exception.ConflictException;
 import de.tudarmstadt.campus.admin.common.exception.ForbiddenException;
 import de.tudarmstadt.campus.admin.common.exception.NotFoundException;
 import de.tudarmstadt.campus.admin.common.exception.UnauthorizedException;
+import de.tudarmstadt.campus.admin.config.AppProperties;
 import de.tudarmstadt.campus.admin.rbac.PermissionCode;
 import de.tudarmstadt.campus.admin.rbac.repository.RoleRepository;
 import de.tudarmstadt.campus.admin.security.JwtService;
+import de.tudarmstadt.campus.admin.security.RateLimiter;
 import de.tudarmstadt.campus.admin.security.TokenBlacklistService;
 import de.tudarmstadt.campus.admin.security.TokenClaims;
 import de.tudarmstadt.campus.admin.security.TokenVersionService;
@@ -40,10 +42,13 @@ public class AuthService {
     private final TokenVersionService tokenVersions;
     private final PasswordService passwordService;
     private final AuditService auditService;
+    private final RateLimiter rateLimiter;
+    private final AppProperties.RateLimits limits;
 
     public AuthService(AdminUserRepository adminUsers, RoleRepository roles, JwtService jwtService,
                        TokenBlacklistService blacklist, TokenVersionService tokenVersions,
-                       PasswordService passwordService, AuditService auditService) {
+                       PasswordService passwordService, AuditService auditService,
+                       RateLimiter rateLimiter, AppProperties properties) {
         this.adminUsers = adminUsers;
         this.roles = roles;
         this.jwtService = jwtService;
@@ -51,22 +56,29 @@ public class AuthService {
         this.tokenVersions = tokenVersions;
         this.passwordService = passwordService;
         this.auditService = auditService;
+        this.rateLimiter = rateLimiter;
+        this.limits = properties.rateLimit();
     }
 
     @Transactional
-    public TokenResponse login(String username, String rawPassword) {
-        AdminUser user = adminUsers.findByUsername(username).orElse(null);
+    public TokenResponse login(String identifier, String rawPassword) {
+        // Counted before the password is checked, so guessing is limited rather than merely logged. The
+        // counter runs on what was typed: an attacker who alternates username and mail address for the
+        // same account gets two buckets, which is acceptable — both are still limited.
+        rateLimiter.check("login", identifier, limits.loginAttempts(), limits.loginWindow());
+
+        AdminUser user = adminUsers.findByUsernameOrEmail(identifier).orElse(null);
 
         // Same answer for an unknown account and a wrong password, so the endpoint cannot be used to
         // find out which usernames exist.
         if (user == null || !passwordService.matches(rawPassword, user.getPasswordHash())) {
-            log.debug("Failed login attempt for '{}'", username);
-            auditService.recordAuthEvent("LOGIN_FAILED", username, false, "INVALID_CREDENTIALS");
+            log.debug("Failed login attempt for '{}'", identifier);
+            auditService.recordAuthEvent("LOGIN_FAILED", identifier, false, "INVALID_CREDENTIALS");
             throw new UnauthorizedException("INVALID_CREDENTIALS",
                     "Benutzername oder Passwort ist falsch.");
         }
         if (!user.isActive()) {
-            auditService.recordAuthEvent("LOGIN_FAILED", username, false, "ACCOUNT_DISABLED");
+            auditService.recordAuthEvent("LOGIN_FAILED", identifier, false, "ACCOUNT_DISABLED");
             throw new ForbiddenException("ACCOUNT_DISABLED",
                     "Dieses Konto ist gesperrt. Bitte wenden Sie sich an die Administration.");
         }
@@ -74,6 +86,9 @@ public class AuthService {
         user.setLastLoginAt(Instant.now());
         adminUsers.save(user);
         auditService.recordAuthEvent("LOGIN_SUCCESS", user.getUsername(), true, null);
+        // A correct password clears the counter; otherwise a forgetful person would be locked out for
+        // fifteen minutes after finally getting it right.
+        rateLimiter.reset("login", identifier);
 
         return issueTokens(user);
     }
@@ -248,12 +263,17 @@ public class AuthService {
         }
     }
 
+    /**
+     * The account as the client sees it — with exactly the permissions its token carries, not with the
+     * ones its roles would grant. The difference matters while {@code must_change_password} is set: an
+     * interface that read the full set here would offer menus and buttons whose every call ends in 403.
+     */
     private CurrentUserResponse toResponse(AdminUser user) {
         return new CurrentUserResponse(
                 user.getId(), user.getUsername(), user.getEmail(),
                 user.getFirstName(), user.getLastName(), user.getOrganisation(),
                 user.isActive(), user.isMustChangePassword(),
                 roles.findRoleNamesByUserId(user.getId()),
-                roles.findPermissionCodesByUserId(user.getId()));
+                effectivePermissions(user));
     }
 }

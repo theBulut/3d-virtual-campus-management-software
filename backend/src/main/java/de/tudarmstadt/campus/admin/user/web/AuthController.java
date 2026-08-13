@@ -4,17 +4,21 @@ import de.tudarmstadt.campus.admin.security.CampusUserDetails;
 import de.tudarmstadt.campus.admin.security.JwtAuthFilter;
 import de.tudarmstadt.campus.admin.security.TokenClaims;
 import de.tudarmstadt.campus.admin.user.service.AuthService;
+import de.tudarmstadt.campus.admin.user.service.RegistrationService;
 import de.tudarmstadt.campus.admin.user.web.dto.ChangePasswordRequest;
 import de.tudarmstadt.campus.admin.user.web.dto.CurrentUserResponse;
 import de.tudarmstadt.campus.admin.user.web.dto.LoginRequest;
 import de.tudarmstadt.campus.admin.user.web.dto.LogoutRequest;
 import de.tudarmstadt.campus.admin.user.web.dto.RefreshRequest;
+import de.tudarmstadt.campus.admin.user.web.dto.RegisterRequest;
 import de.tudarmstadt.campus.admin.user.web.dto.TokenResponse;
 import de.tudarmstadt.campus.admin.user.web.dto.UpdateProfileRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -32,18 +37,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final RegistrationService registrationService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RegistrationService registrationService) {
         this.authService = authService;
+        this.registrationService = registrationService;
     }
 
-    /** One of the four deliberately unauthenticated endpoints; covered by the allowlist. */
+    /** One of the deliberately unauthenticated endpoints; covered by the allowlist. */
     @PostMapping("/login")
     @SecurityRequirements
     @Operation(summary = "Anmelden",
-            description = "Liefert ein Access- und ein Refresh-Token. Gesperrte Konten erhalten 403.")
+            description = "Benutzername oder E-Mail-Adresse, dazu das Passwort. Liefert ein Access- "
+                    + "und ein Refresh-Token. Gesperrte Konten erhalten 403, zu viele Fehlversuche 429.")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request.username(), request.password());
+    }
+
+    /**
+     * Self-registration of a player (FA-23). Unauthenticated by nature, and therefore rate limited.
+     * <p>
+     * Answers with the same token pair as a login, so the client can go straight into the game. The new
+     * account always receives exactly the role {@code EXTERNE_PERSON} — the request carries no roles
+     * field, so nobody can register themselves into a privileged role.
+     */
+    @PostMapping("/register")
+    @ResponseStatus(HttpStatus.CREATED)
+    @SecurityRequirements
+    @Operation(summary = "Registrieren",
+            description = "Legt ein Spielerkonto mit der Rolle EXTERNE_PERSON an und meldet es direkt "
+                    + "an. Höherstufen kann ausschließlich eine Administration.")
+    public TokenResponse register(@Valid @RequestBody RegisterRequest request,
+                                  HttpServletRequest httpRequest) {
+        return registrationService.register(request, clientAddress(httpRequest));
     }
 
     @PostMapping("/refresh")
@@ -103,5 +129,17 @@ public class AuthController {
                                                @Valid @RequestBody ChangePasswordRequest request) {
         authService.changeOwnPassword(principal.getUserId(), request.currentPassword(), request.newPassword());
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * The address the rate limit counts on. Behind the frontend container every call arrives from the
+     * proxy, so the forwarded address is the only one that distinguishes visitors.
+     */
+    private static String clientAddress(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

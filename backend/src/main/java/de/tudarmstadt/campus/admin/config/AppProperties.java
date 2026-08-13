@@ -18,6 +18,7 @@ import java.time.Duration;
 public record AppProperties(
         @NotNull @Valid Jwt jwt,
         @NotNull @Valid InitialAdmin admin,
+        @NotNull @Valid RateLimits rateLimit,
         boolean seedDemo,
         @NotBlank String mediaPath) {
 
@@ -37,5 +38,17 @@ public record AppProperties(
             @NotBlank String username,
             @NotBlank String password,
             @NotBlank @Email String email) {
+    }
+
+    /**
+     * Brakes for the two endpoints that are reachable without a session. Configurable because the useful
+     * value differs by environment: production wants them tight, the integration tests register dozens of
+     * accounts from one address and would otherwise lock themselves out.
+     */
+    public record RateLimits(
+            @NotNull Integer loginAttempts,
+            @NotNull Duration loginWindow,
+            @NotNull Integer registrationsPerAddress,
+            @NotNull Duration registrationWindow) {
     }
 }

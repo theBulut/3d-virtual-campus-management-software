@@ -32,6 +32,8 @@ public class SecurityConfig {
      */
     static final String[] PUBLIC_ENDPOINTS = {
             "/api/auth/login",
+            // Self-registration of players; rate limited in RegistrationService (D-40).
+            "/api/auth/register",
             "/api/auth/refresh",
             "/api/public/**",
             "/api/health",

@@ -95,7 +95,9 @@ public final class RoleCatalog {
                 ROLE_READ, PROFILE_UPDATE_OWN,
                 AUDIT_READ, AUDIT_READ_CONTENT, SYSTEM_HEALTH_READ));
 
-        // Documentation only: no user holds this role, the public endpoints are permitAll.
+        // Every self-registered account. These three permissions carry the game: GET /api/game/scene
+        // requires POI_READ_PUBLISHED, and how much of the scene comes back depends on whether the
+        // caller additionally holds the _ALL variants (docs/DECISIONS.md D-42).
         matrix.put(RoleCode.EXTERNE_PERSON, EnumSet.of(
                 POI_READ_PUBLISHED, BUILDING_READ_PUBLIC, CONSULTATION_READ_PUBLIC));
 
@@ -106,10 +108,15 @@ public final class RoleCatalog {
     private static Map<RoleCode, Set<RoleCode>> buildGrants() {
         Map<RoleCode, Set<RoleCode>> grants = new EnumMap<>(RoleCode.class);
 
-        // EXTERNE_PERSON is never grantable and therefore absent from every set.
+        // EXTERNE_PERSON belongs in both sets, and not for the sake of handing it out: assertCanManage
+        // requires every role of a target account to lie inside the caller's grant set. Without it, a
+        // self-registered account would be out of scope for every administrator and could never be
+        // promoted (docs/DECISIONS.md D-40).
         grants.put(RoleCode.ADMIN, EnumSet.of(RoleCode.ADMIN, RoleCode.PROJEKTLEITER,
-                RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL, RoleCode.MAINTENANCE_DEV));
-        grants.put(RoleCode.PROJEKTLEITER, EnumSet.of(RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL));
+                RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL, RoleCode.MAINTENANCE_DEV,
+                RoleCode.EXTERNE_PERSON));
+        grants.put(RoleCode.PROJEKTLEITER, EnumSet.of(RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL,
+                RoleCode.EXTERNE_PERSON));
         grants.put(RoleCode.PROJEKTMITARBEITER, EnumSet.noneOf(RoleCode.class));
         grants.put(RoleCode.PERSONAL, EnumSet.noneOf(RoleCode.class));
         grants.put(RoleCode.MAINTENANCE_DEV, EnumSet.noneOf(RoleCode.class));

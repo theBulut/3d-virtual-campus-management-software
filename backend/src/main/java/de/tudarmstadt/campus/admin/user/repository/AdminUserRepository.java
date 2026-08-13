@@ -39,6 +39,16 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, Long> {
 
     Optional<AdminUser> findByEmailIgnoreCase(String email);
 
+    /**
+     * The login accepts either identifier. Students who register themselves remember their mail address,
+     * not the username they picked once — and both columns are unique, so the result stays unambiguous.
+     */
+    @Query("""
+            select u from AdminUser u
+            where lower(u.username) = lower(:identifier) or lower(u.email) = lower(:identifier)
+            """)
+    Optional<AdminUser> findByUsernameOrEmail(@Param("identifier") String identifier);
+
     boolean existsByUsernameIgnoreCase(String username);
 
     boolean existsByEmailIgnoreCase(String email);

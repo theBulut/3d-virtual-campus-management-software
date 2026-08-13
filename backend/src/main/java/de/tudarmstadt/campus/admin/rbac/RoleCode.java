@@ -36,14 +36,17 @@ public enum RoleCode {
             true, 5),
 
     /**
-     * Never assigned to a user. The role exists as a row in {@code role} for the completeness of the
-     * permission matrix; technically it is realised by {@code permitAll()} on {@code /api/public/**}
-     * (spec section 1.1, INV-4).
+     * The role every self-registered account carries. It used to exist for the completeness of the
+     * matrix only; since students register themselves and play the campus with their progress bound to
+     * their account, it is a role like any other (docs/DECISIONS.md D-40).
+     * <p>
+     * It stays in place when an account is promoted, so a project lead is a player as well — the
+     * permissions of an account are the union of its roles.
      */
     EXTERNE_PERSON("Öffentlicher Zugriff",
-            "Nur lesender Zugriff auf veröffentlichte Inhalte über die öffentliche Schnittstelle. "
-                    + "Kein Benutzerkonto.",
-            false, 6);
+            "Spielt den 3D-Campus und liest veröffentlichte Inhalte. Wird bei der Selbstregistrierung "
+                    + "vergeben und bleibt beim Hochstufen erhalten.",
+            true, 6);
 
     private final String displayName;
     private final String description;
