@@ -1,0 +1,14 @@
+# Demo data on top of another profile: SPRING_PROFILES_ACTIVE=docker,demo.
+#
+# Its only job is to add the Flyway location with the demo migration. Everything else — database, Redis,
+# secret — stays with the profile it is combined with. Without this profile the location is not on the
+# list, so the seed is not merely unused but never executed (docs/DECISIONS.md D-8, D-39).
+#
+# Never combine this with a production profile: the demo accounts share a password that is public in this
+# repository. DemoProfileWarning says so in the log at every start.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
+
+campus:
+  seed-demo: true

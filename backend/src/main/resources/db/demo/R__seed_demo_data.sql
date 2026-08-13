@@ -1,12 +1,13 @@
--- Demo data for the dev profile: one account per role plus enough content to walk through the review
--- workflow and the public interface.
+-- Demo data for the dev and demo profiles: one account per role plus enough content to walk through the
+-- review workflow and the public interface. The full list is documented in docs/DEMO_DATA.md.
 --
--- A repeatable migration in its own Flyway location. Only the dev profile adds classpath:db/demo, so
--- these accounts never reach docker or prod (docs/DECISIONS.md D-8). Repeatable migrations run after all
--- versioned ones and re-run whenever this file changes, which is why every statement is idempotent.
+-- A repeatable migration in its own Flyway location. Only those two profiles add classpath:db/demo, so
+-- these accounts never reach a production database (docs/DECISIONS.md D-8, D-39). Repeatable migrations
+-- run after all versioned ones and re-run whenever this file changes, which is why every statement is
+-- idempotent.
 --
 -- All demo accounts share the password "demo-passwort". That a known hash sits in the repository is
--- acceptable precisely because this file is never loaded outside dev.
+-- acceptable precisely because this file is never loaded outside a demonstration.
 
 INSERT INTO admin_user (username, email, password_hash, first_name, last_name, organisation, is_active)
 VALUES
@@ -27,6 +28,26 @@ VALUES
      'Demo', 'Betrieb', 'Technischer Betrieb', TRUE)
 ON CONFLICT (username) DO NOTHING;
 
+-- Two accounts for states that are otherwise tedious to produce during a demonstration.
+INSERT INTO admin_user (username, email, password_hash, first_name, last_name, organisation,
+                        is_active, must_change_password)
+VALUES
+    -- Still on its initial password: its token carries nothing but PROFILE_UPDATE_OWN until the password
+    -- is changed (docs/DECISIONS.md D-21), so the menu is empty except for the profile.
+    ('demo_neu', 'demo.neu@tu-darmstadt.de',
+     '$2a$12$cK8Sm9AtFiH2dvQ1iA4UE.rbSUzDkjt7MnLBxmjbgW7kaSlPPqQ5K',
+     'Demo', 'Neuzugang', 'Story++', TRUE, TRUE),
+    -- Locked: the login is refused with ACCOUNT_DISABLED without having to lock somebody first.
+    ('demo_gesperrt', 'demo.gesperrt@tu-darmstadt.de',
+     '$2a$12$cK8Sm9AtFiH2dvQ1iA4UE.rbSUzDkjt7MnLBxmjbgW7kaSlPPqQ5K',
+     'Demo', 'Gesperrt', 'Fachgebiet Informatik', FALSE, FALSE),
+    -- A registered player, as self-registration would create it: one role, no administration, but a
+    -- game state that has been played on already.
+    ('demo_studi', 'demo.studi@stud.tu-darmstadt.de',
+     '$2a$12$cK8Sm9AtFiH2dvQ1iA4UE.rbSUzDkjt7MnLBxmjbgW7kaSlPPqQ5K',
+     'Demo', 'Studentin', NULL, TRUE, FALSE)
+ON CONFLICT (username) DO NOTHING;
+
 INSERT INTO user_role (user_id, role_id)
 SELECT u.id, r.id
 FROM (VALUES
@@ -34,7 +55,10 @@ FROM (VALUES
     ('demo_leitung', 'PROJEKTLEITER'),
     ('demo_mitarbeit', 'PROJEKTMITARBEITER'),
     ('demo_personal', 'PERSONAL'),
-    ('demo_devops', 'MAINTENANCE_DEV')
+    ('demo_devops', 'MAINTENANCE_DEV'),
+    ('demo_neu', 'PROJEKTMITARBEITER'),
+    ('demo_gesperrt', 'PERSONAL'),
+    ('demo_studi', 'EXTERNE_PERSON')
 ) AS m(username, role_name)
 JOIN admin_user u ON u.username = m.username
 JOIN role r ON r.name = m.role_name
@@ -106,3 +130,19 @@ WHERE NOT EXISTS (
     SELECT 1 FROM consultation_event e
     WHERE e.consultation_id = c.id AND e.day_of_week = d.day_of_week
       AND e.start_time = d.start_time::time);
+
+-- A game state that has already been played on, so "continue where you left off" can be shown without
+-- walking the campus first. The format belongs to the Unity client; the backend stores it untouched.
+INSERT INTO game_state (user_id, state)
+SELECT u.id, '{"position":{"x":14.0,"y":0.0,"z":28.5},"visitedBuildings":["S1|03","S2|02"],'
+              '"minutesPlayed":23,"savedAt":"2026-08-01T10:15:00Z"}'::jsonb
+FROM admin_user u
+WHERE u.username = 'demo_studi'
+ON CONFLICT (user_id) DO NOTHING;
+
+-- Scene coordinates for the demo buildings: without them everything would stand on the origin.
+UPDATE building SET position_x = 0,   position_z = 0,   rotation_y = 0   WHERE code = 'S1|03';
+UPDATE building SET position_x = 60,  position_z = 20,  rotation_y = 90  WHERE code = 'S2|02';
+UPDATE building SET position_x = -40, position_z = 15,  rotation_y = 0   WHERE code = 'S1|01';
+UPDATE building SET position_x = 25,  position_z = 90,  rotation_y = 180 WHERE code = 'S3|21';
+UPDATE building SET position_x = 120, position_z = 140, rotation_y = 45  WHERE code = 'L4|01';

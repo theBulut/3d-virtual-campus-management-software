@@ -1,0 +1,12 @@
+# Overlay for demonstrations and manual tests.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#
+# Adds the profile 'demo' to the backend, which puts classpath:db/demo on the Flyway list: five buildings,
+# twelve POIs across all four states, four consultation offers and one account per role
+# (docs/DEMO_DATA.md). A plain `docker compose up` starts the same image without any of it — the demo data
+# is a matter of the active profile, not of the build.
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,demo
