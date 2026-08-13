@@ -109,13 +109,18 @@ class RoleCatalogConsistencyIT extends AbstractIntegrationTest {
         }
     }
 
+    /**
+     * V5 opened the role for self-registration. Both halves have to agree with the catalogue: the flag
+     * in the database and the grant sets that make a registered account manageable at all (D-40).
+     */
     @Test
-    void externePersonIsSeededButNotAssignable() {
+    void externePersonIsSeededAsAssignableAndGrantable() {
         Role external = roles.findByName(RoleCode.EXTERNE_PERSON.name()).orElseThrow();
 
-        assertThat(external.isAssignable()).isFalse();
-        assertThat(roleGrants.findGrantableRoleNames(
-                Arrays.stream(RoleCode.values()).map(Enum::name).toList()))
-                .doesNotContain(RoleCode.EXTERNE_PERSON.name());
+        assertThat(external.isAssignable()).isTrue();
+        assertThat(roleGrants.findGrantableRoleNames(List.of(RoleCode.ADMIN.name())))
+                .contains(RoleCode.EXTERNE_PERSON.name());
+        assertThat(roleGrants.findGrantableRoleNames(List.of(RoleCode.PROJEKTLEITER.name())))
+                .contains(RoleCode.EXTERNE_PERSON.name());
     }
 }

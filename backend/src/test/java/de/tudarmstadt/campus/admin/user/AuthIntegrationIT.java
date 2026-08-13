@@ -1,6 +1,8 @@
 package de.tudarmstadt.campus.admin.user;
 
 import com.jayway.jsonpath.JsonPath;
+import de.tudarmstadt.campus.admin.rbac.PermissionCode;
+import de.tudarmstadt.campus.admin.rbac.RoleCatalog;
 import de.tudarmstadt.campus.admin.rbac.RoleCode;
 import de.tudarmstadt.campus.admin.rbac.domain.Role;
 import de.tudarmstadt.campus.admin.rbac.domain.UserRole;
@@ -21,6 +23,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -299,6 +305,55 @@ class AuthIntegrationIT extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.firstName").value("Mehmet"))
                 .andExpect(jsonPath("$.organisation").value("AG Serious Games"));
+    }
+
+    /**
+     * D-21 end to end: while the initial password is in place, the account may do exactly one thing.
+     * <p>
+     * The second half of this test is the one that matters. The restriction was implemented on the token
+     * but not on the account representation, so login and {@code /api/auth/me} still advertised the full
+     * permission set of the role. An interface that builds its menu from that list — which is precisely
+     * what the specification asks for in section 6 — would have offered pages whose every call ends in
+     * 403.
+     */
+    @Test
+    void anAccountOnItsInitialPasswordIsRestrictedInTokenAndInResponse() throws Exception {
+        AdminUser user = account("must_change", RoleCode.PROJEKTMITARBEITER);
+        user.setMustChangePassword(true);
+        adminUsers.save(user);
+        entityManager.flush();
+
+        String body = mockMvc.perform(login("must_change", PASSWORD))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.mustChangePassword").value(true))
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> advertised = JsonPath.read(body, "$.user.permissions");
+        assertThat(advertised).containsExactly(PermissionCode.PROFILE_UPDATE_OWN.name());
+
+        String accessToken = JsonPath.read(body, "$.accessToken");
+        // The role would grant POI_READ_ALL; the restricted token does not carry it.
+        mockMvc.perform(get("/api/pois").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.permissions", hasSize(1)));
+
+        mockMvc.perform(post("/api/auth/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + PASSWORD
+                                + "\",\"newPassword\":\"ein-langes-neues-passwort\"}"))
+                .andExpect(status().isNoContent());
+
+        // After the change the next login carries the full set of the role again.
+        String after = mockMvc.perform(login("must_change", "ein-langes-neues-passwort"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.mustChangePassword").value(false))
+                .andReturn().getResponse().getContentAsString();
+        List<String> full = JsonPath.read(after, "$.user.permissions");
+        assertThat(full).containsExactlyInAnyOrderElementsOf(
+                RoleCatalog.permissionsOf(RoleCode.PROJEKTMITARBEITER).stream().map(Enum::name).toList());
     }
 
     private MockHttpServletRequestBuilder login(String username, String password) {

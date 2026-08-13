@@ -40,16 +40,18 @@ class RoleGrantRepositoryIT extends AbstractIntegrationTest {
     private EntityManager entityManager;
 
     @Test
-    void adminMayGrantEveryAssignableRole() {
+    void adminMayGrantEveryRole() {
         assertThat(roleGrants.findGrantableRoleNames(List.of(RoleCode.ADMIN.name())))
-                .containsExactly("ADMIN", "MAINTENANCE_DEV", "PERSONAL", "PROJEKTLEITER",
-                        "PROJEKTMITARBEITER");
+                .containsExactly("ADMIN", "EXTERNE_PERSON", "MAINTENANCE_DEV", "PERSONAL",
+                        "PROJEKTLEITER", "PROJEKTMITARBEITER");
     }
 
     @Test
-    void projektleiterMayGrantOnlyTheTwoContentRoles() {
+    void projektleiterMayGrantTheContentRolesAndReachPlayers() {
+        // EXTERNE_PERSON is in the set so a self-registered account is inside the scope of a project
+        // lead at all — assertCanManage checks every role of the target (docs/DECISIONS.md D-40).
         assertThat(roleGrants.findGrantableRoleNames(List.of(RoleCode.PROJEKTLEITER.name())))
-                .containsExactly("PERSONAL", "PROJEKTMITARBEITER");
+                .containsExactly("EXTERNE_PERSON", "PERSONAL", "PROJEKTMITARBEITER");
     }
 
     @Test
@@ -65,11 +67,11 @@ class RoleGrantRepositoryIT extends AbstractIntegrationTest {
     void grantSetsOfSeveralRolesAreUnioned() {
         assertThat(roleGrants.findGrantableRoleNames(
                 List.of(RoleCode.PROJEKTLEITER.name(), RoleCode.MAINTENANCE_DEV.name())))
-                .containsExactly("PERSONAL", "PROJEKTMITARBEITER");
+                .containsExactly("EXTERNE_PERSON", "PERSONAL", "PROJEKTMITARBEITER");
 
         assertThat(roleGrants.findGrantableRoleNames(
                 List.of(RoleCode.ADMIN.name(), RoleCode.PROJEKTLEITER.name())))
-                .hasSize(5)
+                .hasSize(6)
                 .doesNotHaveDuplicates();
     }
 

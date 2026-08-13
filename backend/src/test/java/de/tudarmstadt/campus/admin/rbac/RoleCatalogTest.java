@@ -81,30 +81,51 @@ class RoleCatalogTest {
     void grantSetsFollowSectionOneFour() {
         assertThat(RoleCatalog.grantableBy(RoleCode.ADMIN))
                 .containsExactlyInAnyOrder(RoleCode.ADMIN, RoleCode.PROJEKTLEITER,
-                        RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL, RoleCode.MAINTENANCE_DEV);
+                        RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL, RoleCode.MAINTENANCE_DEV,
+                        RoleCode.EXTERNE_PERSON);
         assertThat(RoleCatalog.grantableBy(RoleCode.PROJEKTLEITER))
-                .containsExactlyInAnyOrder(RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL);
+                .containsExactlyInAnyOrder(RoleCode.PROJEKTMITARBEITER, RoleCode.PERSONAL,
+                        RoleCode.EXTERNE_PERSON);
         assertThat(RoleCatalog.grantableBy(RoleCode.PROJEKTMITARBEITER)).isEmpty();
         assertThat(RoleCatalog.grantableBy(RoleCode.PERSONAL)).isEmpty();
         assertThat(RoleCatalog.grantableBy(RoleCode.MAINTENANCE_DEV)).isEmpty();
         assertThat(RoleCatalog.grantableBy(RoleCode.EXTERNE_PERSON)).isEmpty();
     }
 
-    /** INV-4: EXTERNE_PERSON exists for documentation and is never handed to anyone. */
+    /**
+     * Since self-registration exists, EXTERNE_PERSON is a role like any other (docs/DECISIONS.md D-40).
+     * <p>
+     * It has to sit in the grant sets of both administering roles, and not so it can be handed out
+     * manually: assertCanManage demands that every role of a target account lies inside the caller's
+     * grant set. Without it, a self-registered account could never be promoted.
+     */
     @Test
-    void externePersonIsNeitherAssignableNorGrantable() {
-        assertThat(RoleCode.EXTERNE_PERSON.assignable()).isFalse();
-        for (RoleCode role : RoleCode.values()) {
-            assertThat(RoleCatalog.grantableBy(role)).doesNotContain(RoleCode.EXTERNE_PERSON);
-        }
+    void externePersonIsAssignableAndReachableForBothAdministeringRoles() {
+        assertThat(RoleCode.EXTERNE_PERSON.assignable()).isTrue();
+        assertThat(RoleCatalog.grantableBy(RoleCode.ADMIN)).contains(RoleCode.EXTERNE_PERSON);
+        assertThat(RoleCatalog.grantableBy(RoleCode.PROJEKTLEITER)).contains(RoleCode.EXTERNE_PERSON);
+
+        // The roles without any administrative reach stay empty.
+        assertThat(RoleCatalog.grantableBy(RoleCode.PROJEKTMITARBEITER)).isEmpty();
+        assertThat(RoleCatalog.grantableBy(RoleCode.PERSONAL)).isEmpty();
+        assertThat(RoleCatalog.grantableBy(RoleCode.MAINTENANCE_DEV)).isEmpty();
+        assertThat(RoleCatalog.grantableBy(RoleCode.EXTERNE_PERSON)).isEmpty();
+    }
+
+    /** The role a registered player holds is what makes the game reachable at all. */
+    @Test
+    void externePersonMayReadPublishedContent() {
+        assertThat(RoleCatalog.permissionsOf(RoleCode.EXTERNE_PERSON))
+                .containsExactlyInAnyOrder(PermissionCode.POI_READ_PUBLISHED,
+                        PermissionCode.BUILDING_READ_PUBLIC, PermissionCode.CONSULTATION_READ_PUBLIC);
     }
 
     @Test
-    void everyOtherRoleIsAssignable() {
+    void everyRoleIsAssignable() {
+        // The is_assignable flag stays as the mechanism, but no role carries it any more. A future role
+        // that must not be handed out would be refused in one place, RoleAssignmentService.assign.
         for (RoleCode role : RoleCode.values()) {
-            if (role != RoleCode.EXTERNE_PERSON) {
-                assertThat(role.assignable()).isTrue();
-            }
+            assertThat(role.assignable()).as("%s", role).isTrue();
         }
     }
 

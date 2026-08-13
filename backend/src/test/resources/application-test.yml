@@ -17,6 +17,13 @@ campus:
     username: admin
     password: test-password
     email: admin@localhost
+  rate-limit:
+    # Effectively off: the integration tests register and sign in dozens of accounts from one address
+    # within seconds. The limiter itself is covered by RateLimiterIT, which sets its own values.
+    login-attempts: 10000
+    login-window: PT1M
+    registrations-per-address: 10000
+    registration-window: PT1M
   seed-demo: false
   media-path: ./target/test-media
 

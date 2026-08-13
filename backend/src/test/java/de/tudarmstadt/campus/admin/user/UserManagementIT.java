@@ -228,7 +228,7 @@ class UserManagementIT extends AbstractIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", containsInAnyOrder(
-                        "PERSONAL", "PROJEKTMITARBEITER")));
+                        "PERSONAL", "PROJEKTMITARBEITER", "EXTERNE_PERSON")));
     }
 
     private String login(String username) throws Exception {

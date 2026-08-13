@@ -25,6 +25,7 @@ class JwtServiceTest {
         return new JwtService(new AppProperties(
                 new AppProperties.Jwt(secret, accessTtl, Duration.ofDays(7)),
                 new AppProperties.InitialAdmin("admin", "admin", "admin@localhost"),
+                new AppProperties.RateLimits(10, Duration.ofMinutes(15), 5, Duration.ofHours(1)),
                 false, "./data/media"));
     }
 

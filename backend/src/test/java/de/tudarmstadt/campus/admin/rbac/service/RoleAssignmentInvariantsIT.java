@@ -1,9 +1,9 @@
 package de.tudarmstadt.campus.admin.rbac.service;
 
-import de.tudarmstadt.campus.admin.common.exception.BadRequestException;
 import de.tudarmstadt.campus.admin.common.exception.ConflictException;
 import de.tudarmstadt.campus.admin.common.exception.ForbiddenException;
 import de.tudarmstadt.campus.admin.common.exception.NotFoundException;
+import de.tudarmstadt.campus.admin.rbac.PermissionCode;
 import de.tudarmstadt.campus.admin.rbac.RoleCode;
 import de.tudarmstadt.campus.admin.rbac.domain.Role;
 import de.tudarmstadt.campus.admin.rbac.domain.UserRole;
@@ -168,16 +168,52 @@ class RoleAssignmentInvariantsIT extends AbstractIntegrationTest {
                 .hasFieldOrPropertyWithValue("code", "LAST_ROLE_PROTECTED");
     }
 
-    /** INV-4 */
+    /**
+     * The former INV-4 said EXTERNE_PERSON is never assigned. Self-registration replaced that rule
+     * (docs/DECISIONS.md D-40) — this test now holds the opposite in place.
+     */
     @Test
-    void externePersonCannotBeAssigned() {
+    void externePersonIsAssignableSinceSelfRegistrationExists() {
         AdminUser admin = account("inv_admin_extern", RoleCode.ADMIN);
         AdminUser target = account("inv_target_extern", RoleCode.PERSONAL);
 
-        assertThatThrownBy(() -> roleAssignments.assign(admin.getId(), target.getId(),
-                RoleCode.EXTERNE_PERSON.name()))
-                .isInstanceOf(BadRequestException.class)
-                .hasFieldOrPropertyWithValue("code", "ROLE_NOT_ASSIGNABLE");
+        roleAssignments.assign(admin.getId(), target.getId(), RoleCode.EXTERNE_PERSON.name());
+
+        assertThat(roles.findRoleNamesByUserId(target.getId()))
+                .containsExactlyInAnyOrder(RoleCode.PERSONAL.name(), RoleCode.EXTERNE_PERSON.name());
+    }
+
+    /**
+     * The reason the role had to enter the grant sets: promoting a player means reaching an account
+     * whose only role is EXTERNE_PERSON. Without that entry, assertCanManage would refuse every such
+     * account as out of scope — the registration would work and the promotion would not.
+     */
+    @Test
+    void aRegisteredPlayerCanBePromoted() {
+        AdminUser lead = account("inv_lead_promote", RoleCode.PROJEKTLEITER);
+        AdminUser player = account("inv_player_promote", RoleCode.EXTERNE_PERSON);
+
+        roleAssignments.assign(lead.getId(), player.getId(), RoleCode.PROJEKTMITARBEITER.name());
+
+        // The playing role stays: an account is the union of its roles, and a contributor is a player too.
+        assertThat(roles.findRoleNamesByUserId(player.getId()))
+                .containsExactlyInAnyOrder(RoleCode.EXTERNE_PERSON.name(),
+                        RoleCode.PROJEKTMITARBEITER.name());
+        assertThat(roles.findPermissionCodesByUserId(player.getId()))
+                .contains(PermissionCode.POI_CREATE.name(), PermissionCode.POI_READ_PUBLISHED.name());
+    }
+
+    /** Demotion is the exact inverse: the elevated role goes, the player remains a player. */
+    @Test
+    void demotingLeavesTheAccountPlayable() {
+        AdminUser admin = account("inv_admin_demote", RoleCode.ADMIN);
+        AdminUser player = account("inv_player_demote", RoleCode.EXTERNE_PERSON);
+        roleAssignments.assign(admin.getId(), player.getId(), RoleCode.PROJEKTMITARBEITER.name());
+
+        roleAssignments.revoke(admin.getId(), player.getId(), RoleCode.PROJEKTMITARBEITER.name());
+
+        assertThat(roles.findRoleNamesByUserId(player.getId()))
+                .containsExactly(RoleCode.EXTERNE_PERSON.name());
     }
 
     /** INV-6: a role change invalidates the outstanding access tokens right away. */

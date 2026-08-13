@@ -35,6 +35,9 @@ class EndpointSecurityTest {
      */
     private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
             "/api/auth/login",
+            // Registration has to be reachable without an account — that is its whole purpose. The
+            // protection here is not authorisation but a rate limit and the fixed role it hands out.
+            "/api/auth/register",
             "/api/auth/refresh",
             "/api/health",
             "/api/public/**");

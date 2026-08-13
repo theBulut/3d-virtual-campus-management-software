@@ -21,7 +21,8 @@ class SchemaValidationIT extends AbstractIntegrationTest {
 
     private static final List<String> EXPECTED_TABLES = List.of(
             "admin_user", "audit_log", "building", "consultation", "consultation_event",
-            "media_asset", "permission", "poi", "role", "role_grant", "role_permission", "user_role");
+            "game_state", "media_asset", "permission", "poi", "role", "role_grant", "role_permission",
+            "user_role");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -32,8 +33,8 @@ class SchemaValidationIT extends AbstractIntegrationTest {
                 "select version from flyway_schema_history where success order by installed_rank",
                 String.class);
 
-        // V1 to V3 build the schema, V4 seeds the RBAC catalogue.
-        assertThat(versions).containsExactly("1", "2", "3", "4");
+        // V1 to V3 build the schema, V4 seeds the RBAC catalogue, V5 opens the model for players.
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
 
         Integer failed = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where not success", Integer.class);
@@ -41,7 +42,7 @@ class SchemaValidationIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void schemaHoldsTheTwelveTablesOfTheSpecification() {
+    void schemaHoldsExactlyTheTablesOfTheSpecification() {
         List<String> tables = jdbcTemplate.queryForList("""
                 select table_name from information_schema.tables
                 where table_schema = 'public' and table_name <> 'flyway_schema_history'

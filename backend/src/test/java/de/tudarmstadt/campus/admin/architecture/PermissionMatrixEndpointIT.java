@@ -99,11 +99,9 @@ class PermissionMatrixEndpointIT extends AbstractIntegrationTest {
 
     static Stream<Arguments> cells() {
         List<Arguments> cells = new ArrayList<>();
+        // EXTERNE_PERSON is included: since self-registration it is held by real accounts, and a role
+        // that holds none of the administrative permissions is the sharpest test of the matrix.
         for (RoleCode role : RoleCode.values()) {
-            if (role == RoleCode.EXTERNE_PERSON) {
-                // Never held by an account; realised through permitAll on the public endpoints.
-                continue;
-            }
             for (Endpoint endpoint : ENDPOINTS) {
                 cells.add(Arguments.of(role, endpoint));
             }

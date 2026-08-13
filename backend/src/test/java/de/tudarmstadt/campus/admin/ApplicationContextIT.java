@@ -41,14 +41,14 @@ class ApplicationContextIT extends AbstractIntegrationTest {
 
     @Test
     void hibernateRunsInValidateMode() {
-        // Every table is owned by a migration, so the count matches the twelve of the specification.
-        // If ddl-auto ever created a table behind Flyway's back this would drift (NFA-04).
+        // Every table is owned by a migration: twelve from the original specification plus game_state
+        // from V5. If ddl-auto ever created a table behind Flyway's back this would drift (NFA-04).
         // SchemaValidationIT pins down the individual names.
         Integer businessTables = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.tables
                 where table_schema = 'public' and table_name <> 'flyway_schema_history'
                 """, Integer.class);
-        assertThat(businessTables).isEqualTo(12);
+        assertThat(businessTables).isEqualTo(13);
     }
 
     @Test
