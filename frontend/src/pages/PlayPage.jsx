@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { tokenStore } from '../api/client';
 import { fetchScene } from '../api/game';
 import { useAuth } from '../auth/AuthContext';
+import GameStatePanel from '../components/game/GameStatePanel';
 import ScenePreview from '../components/game/ScenePreview';
 import UnityCanvas from '../components/game/UnityCanvas';
 
@@ -61,7 +62,8 @@ export default function PlayPage() {
       )}
 
       <UnityCanvas ref={unityRef} provideToken={provideToken}>
-        {/* Shown while no build is present. Same data, without the 3D. */}
+        {/* Shown while no build is present: the same data and the same progress, without the 3D. */}
+        <GameStatePanel />
         {scene ? <ScenePreview scene={scene} /> : <p className="page__loading">Szene wird geladen …</p>}
       </UnityCanvas>
     </div>
