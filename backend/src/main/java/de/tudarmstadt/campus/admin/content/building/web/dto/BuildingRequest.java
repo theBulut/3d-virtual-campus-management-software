@@ -41,5 +41,13 @@ public record BuildingRequest(
         @Size(max = 255, message = "Modellreferenz darf höchstens 255 Zeichen lang sein")
         String modelRef,
 
+        // Position in the 3D scene. Separate from latitude and longitude, which describe the real
+        // location — the mapping between the two needs the anchor of the Unity scene and is not
+        // computed here.
+        double positionX,
+        double positionY,
+        double positionZ,
+        double rotationY,
+
         boolean published) {
 }

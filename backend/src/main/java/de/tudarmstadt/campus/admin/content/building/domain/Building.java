@@ -56,6 +56,24 @@ public class Building {
     @Column(name = "model_ref", length = 255)
     private String modelRef;
 
+    /**
+     * Where the building stands in the 3D scene — not the same thing as {@link #latitude} and
+     * {@link #longitude}, which describe the real place. Deriving one from the other would need the
+     * anchor and scale of the Unity scene, so both are kept and edited separately.
+     */
+    @Column(name = "position_x", nullable = false)
+    private double positionX;
+
+    @Column(name = "position_y", nullable = false)
+    private double positionY;
+
+    @Column(name = "position_z", nullable = false)
+    private double positionZ;
+
+    /** Rotation around the vertical axis in degrees. */
+    @Column(name = "rotation_y", nullable = false)
+    private double rotationY;
+
     @Column(name = "is_published", nullable = false)
     private boolean published;
 

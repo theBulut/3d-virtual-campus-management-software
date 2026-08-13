@@ -14,6 +14,10 @@ public record BuildingResponse(
         Double latitude,
         Double longitude,
         String modelRef,
+        double positionX,
+        double positionY,
+        double positionZ,
+        double rotationY,
         boolean published,
         Instant createdAt,
         Instant updatedAt) {

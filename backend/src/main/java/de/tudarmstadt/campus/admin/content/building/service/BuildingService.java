@@ -116,6 +116,10 @@ public class BuildingService {
         building.setLatitude(request.latitude());
         building.setLongitude(request.longitude());
         building.setModelRef(trimToNull(request.modelRef()));
+        building.setPositionX(request.positionX());
+        building.setPositionY(request.positionY());
+        building.setPositionZ(request.positionZ());
+        building.setRotationY(request.rotationY());
         building.setPublished(request.published());
     }
 
@@ -129,6 +133,8 @@ public class BuildingService {
         return new BuildingResponse(building.getId(), building.getCode(), building.getNameDe(),
                 building.getNameEn(), building.getStreet(), building.getPostalCode(), building.getCity(),
                 building.getLatitude(), building.getLongitude(), building.getModelRef(),
+                building.getPositionX(), building.getPositionY(), building.getPositionZ(),
+                building.getRotationY(),
                 building.isPublished(), building.getCreatedAt(), building.getUpdatedAt());
     }
 
