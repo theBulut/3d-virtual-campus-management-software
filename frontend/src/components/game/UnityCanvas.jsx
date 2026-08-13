@@ -50,11 +50,14 @@ const UnityCanvas = forwardRef(function UnityCanvas({ provideToken, children }, 
       if (!response.ok) {
         return null;
       }
-      const contentType = response.headers.get('Content-Type') ?? '';
-      if (!contentType.includes('application/json')) {
+      // Parsed rather than judged by its Content-Type: a server that labels the file as
+      // octet-stream still delivers a usable manifest, while a development server answering with
+      // index.html fails the parse — which is exactly the distinction that matters here.
+      try {
+        return JSON.parse(await response.text());
+      } catch {
         return null;
       }
-      return response.json();
     }
 
     loadManifest()
