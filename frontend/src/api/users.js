@@ -1,38 +1,23 @@
-const API_BASE = '/api';
+import { del, get, patch, post, put, query } from './client';
 
-export class ApiError extends Error {
-  constructor(message, fieldErrors = {}) {
-    super(message);
-    this.name = 'ApiError';
-    this.fieldErrors = fieldErrors;
-  }
-}
+export const fetchUsers = (params = {}) => get(`/users${query(params)}`);
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+export const fetchUser = (id) => get(`/users/${id}`);
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new ApiError(
-      body?.message || `Anfrage fehlgeschlagen (HTTP ${response.status})`,
-      body?.fieldErrors ?? {}
-    );
-  }
+export const createUser = (user) => post('/users', user);
 
-  return response.status === 204 ? null : response.json();
-}
+export const updateUser = (id, user) => put(`/users/${id}`, user);
 
-export const fetchUsers = () => request('/users');
+export const setUserActive = (id, active) => patch(`/users/${id}/status`, { active });
 
-export const createUser = (user) =>
-  request('/users', { method: 'POST', body: JSON.stringify(user) });
+export const deleteUser = (id) => del(`/users/${id}`);
 
-export const updateUser = (id, user) =>
-  request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(user) });
+export const assignRole = (id, roleName) => post(`/users/${id}/roles`, { roleName });
 
-export const deleteUser = (id) => request(`/users/${id}`, { method: 'DELETE' });
+export const revokeRole = (id, roleName) => del(`/users/${id}/roles/${roleName}`);
 
-export const fetchAdmin = (username = 'admin') => request(`/admins/${username}`);
+/**
+ * The roles the signed-in account may hand out. The dropdown in RoleAssignPanel is filled from here and
+ * from nowhere else — the grant set lives on the server (spec section 1.4).
+ */
+export const fetchGrantableRoles = () => get('/users/me/grantable-roles');

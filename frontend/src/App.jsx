@@ -1,148 +1,91 @@
-import { useEffect, useState } from 'react';
-import './App.scss';
-import {
-  ApiError,
-  createUser,
-  deleteUser,
-  fetchAdmin,
-  fetchUsers,
-  updateUser,
-} from './api/users';
-import UserForm from './components/UserForm';
-import UserTable from './components/UserTable';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider } from './auth/AuthContext';
+import ProtectedRoute from './auth/ProtectedRoute';
+import RequirePermission from './auth/RequirePermission';
+import AppShell from './components/layout/AppShell';
+import { ToastProvider } from './components/ui/Toast';
+import DashboardPage from './pages/DashboardPage';
+import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import PlayPage from './pages/PlayPage';
+import ProfilePage from './pages/ProfilePage';
+import RegisterPage from './pages/RegisterPage';
+import AuditLogPage from './pages/audit/AuditLogPage';
+import ForbiddenPage from './pages/errors/ForbiddenPage';
+import NotFoundPage from './pages/errors/NotFoundPage';
+import PoiEditorPage from './pages/pois/PoiEditorPage';
+import PoiListPage from './pages/pois/PoiListPage';
+import PermissionMatrixPage from './pages/roles/PermissionMatrixPage';
+import UserDetailPage from './pages/users/UserDetailPage';
+import UserFormPage from './pages/users/UserFormPage';
+import UserListPage from './pages/users/UserListPage';
+import './styles/main.scss';
 
-function App() {
-  const [admin, setAdmin] = useState(null);
-  // null until the admin loads the list for the first time.
-  const [users, setUsers] = useState(null);
-  // null when the editor is closed, otherwise the user being edited ({} = new).
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({});
-
-  useEffect(() => {
-    fetchAdmin()
-      .then(setAdmin)
-      .catch(() => setAdmin(null));
-  }, []);
-
-  const loadUsers = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setUsers(await fetchUsers());
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openEditor = (user) => {
-    setFieldErrors({});
-    setError('');
-    setEditing(user);
-  };
-
-  const closeEditor = () => {
-    setFieldErrors({});
-    setEditing(null);
-  };
-
-  const handleSubmit = async (values) => {
-    setSubmitting(true);
-    setError('');
-    setFieldErrors({});
-    try {
-      if (editing.id === undefined) {
-        await createUser(values);
-      } else {
-        await updateUser(editing.id, values);
-      }
-      setEditing(null);
-      await loadUsers();
-    } catch (err) {
-      setError(err.message);
-      if (err instanceof ApiError) {
-        setFieldErrors(err.fieldErrors);
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDelete = async (user) => {
-    if (!window.confirm(`${user.firstName} ${user.lastName} wirklich löschen?`)) {
-      return;
-    }
-    setError('');
-    try {
-      await deleteUser(user.id);
-      if (editing?.id === user.id) {
-        closeEditor();
-      }
-      await loadUsers();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
+/**
+ * Three areas, and the route table says which is which.
+ * <p>
+ * Public: landing, login, registration. Signed in: the game under {@code /play} and the own profile,
+ * both reachable for every account. The administration lives under {@code /admin} and every route there
+ * names the permission it needs — the same code the backend checks in its {@code @PreAuthorize}
+ * expression, so the two can be compared line by line.
+ */
+export default function App() {
   return (
-    <main className="app">
-      <header className="app-header">
-        <h1>3D Virtual Campus Management Software</h1>
-        <p className="admin-badge">
-          Angemeldet als: <strong>{admin ? admin.displayName : '—'}</strong>
-        </p>
-      </header>
+    <BrowserRouter>
+      <AuthProvider>
+        <ToastProvider>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
 
-      <div className="toolbar">
-        <button type="button" className="primary" onClick={loadUsers} disabled={loading}>
-          {loading ? 'Lädt…' : 'Alle User anzeigen'}
-        </button>
-        <button type="button" onClick={() => openEditor({})}>
-          + Neuer User
-        </button>
-      </div>
+            <Route element={<ProtectedRoute />}>
+              {/* The game needs no shell: it fills the window. */}
+              <Route element={<RequirePermission anyOf={['POI_READ_PUBLISHED']} />}>
+                <Route path="play" element={<PlayPage />} />
+              </Route>
 
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+              <Route element={<AppShell />}>
+                <Route path="profile" element={<ProfilePage />} />
 
-      <div className="layout">
-        <section className="panel">
-          <h2>User{users ? ` (${users.length})` : ''}</h2>
-          {users === null ? (
-            <p className="hint">Klick auf „Alle User anzeigen“, um die Liste zu laden.</p>
-          ) : (
-            <UserTable
-              users={users}
-              selectedId={editing?.id}
-              onEdit={openEditor}
-              onDelete={handleDelete}
-            />
-          )}
-        </section>
+                <Route path="admin" element={<DashboardPage />} />
 
-        {editing && (
-          <section className="panel">
-            <UserForm
-              key={editing.id ?? 'new'}
-              user={editing}
-              fieldErrors={fieldErrors}
-              submitting={submitting}
-              onSubmit={handleSubmit}
-              onCancel={closeEditor}
-            />
-          </section>
-        )}
-      </div>
-    </main>
+                <Route element={<RequirePermission anyOf={['USER_READ']} />}>
+                  <Route path="admin/users" element={<UserListPage />} />
+                  <Route path="admin/users/:id" element={<UserDetailPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={['USER_CREATE']} />}>
+                  <Route path="admin/users/new" element={<UserFormPage />} />
+                </Route>
+
+                <Route element={<RequirePermission anyOf={['ROLE_READ']} />}>
+                  <Route path="admin/roles/matrix" element={<PermissionMatrixPage />} />
+                </Route>
+
+                <Route element={<RequirePermission anyOf={['POI_READ_ALL']} />}>
+                  <Route path="admin/pois" element={<PoiListPage />} />
+                  <Route path="admin/pois/:id" element={<PoiEditorPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={['POI_CREATE']} />}>
+                  <Route path="admin/pois/new" element={<PoiEditorPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={['POI_PUBLISH']} />}>
+                  <Route path="admin/pois/review" element={<PoiListPage reviewQueue />} />
+                </Route>
+
+                <Route element={<RequirePermission anyOf={['AUDIT_READ', 'AUDIT_READ_CONTENT']} />}>
+                  <Route path="admin/audit" element={<AuditLogPage />} />
+                </Route>
+
+                <Route path="403" element={<ForbiddenPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </ToastProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
-
-export default App;
