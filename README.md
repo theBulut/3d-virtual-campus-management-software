@@ -41,7 +41,7 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 8 | Härtung, Dokumentation, Evaluation | offen |
 | 9 | Registrierung und Spielerkonten | ✅ |
 | 10 | Szenen-API und Spielstand für Unity | ✅ |
-| 11 | Unity-Anbindung (PoC, WebGL-Einbettung) | Brücke steht, Build offen |
+| 11 | Unity-Anbindung (Szene, Spielstand, WebGL im Browser) | ✅ |
 
 Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
 ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`).
@@ -75,9 +75,13 @@ curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_studi
 curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_leitung)" | jq '.pois | length'   # 12
 ```
 
-Die Unity-Anbindung liegt in [game/](game/) — fünf C#-Skripte und ein JavaScript-Plugin, die ohne
-Änderung in das FEC-Projekt übernommen werden können. Solange kein WebGL-Build unter
-`frontend/public/game/` liegt, zeigt `/play` dieselben Daten als Liste.
+Die Unity-Anbindung liegt in [game/](game/) — sieben C#-Skripte und ein JavaScript-Plugin, die ohne
+Änderung in das FEC-Projekt übernommen werden können.
+
+Der **WebGL-Build ist nicht im Repository**: rund 57 MB Binärdaten, die sich jederzeit neu erzeugen
+lassen. Nach einem frischen Klon zeigt `/play` deshalb die Szenendaten als Liste — mit denselben
+Inhalten und demselben Spielstand, nur ohne 3D. Wer das Spiel selbst sehen will, öffnet das Projekt in
+`game/` und ruft **Campus → WebGL-Build erzeugen** auf; danach den Frontend-Container einmal neu bauen.
 
 Unter `/api/auth/**` liegen Anmeldung, Token-Erneuerung mit Rotation, Abmeldung und das eigene Profil.
 Ohne Token antwortet jeder Pfad außer `/api/health` und `/api/auth/login|refresh` mit `401`.

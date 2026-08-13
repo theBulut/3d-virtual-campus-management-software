@@ -6,3 +6,8 @@
 .obsidian
 # Local upload directory (CAMPUS_MEDIA_PATH default)
 data/
+
+# Unity-WebGL-Build (rund 57 MB, davon 45 MB game.wasm). Nicht versioniert: das Artefakt lässt sich
+# jederzeit aus dem Unity-Projekt in game/ erzeugen — 'Campus → WebGL-Build erzeugen'. Ohne den Build
+# zeigt /play die Szenendaten als Liste, das System bleibt also auch nach einem frischen Klon vorführbar.
+frontend/public/game/

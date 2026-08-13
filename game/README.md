@@ -65,8 +65,15 @@ Einbettung unabhängig davon, wie Unity seine Dateien benennt.
 Beim ersten Mal fragt Unity nach dem Plattformwechsel; das dauert einige Minuten. Ist das WebGL-Modul
 nicht installiert, im Unity Hub unter *Installs → Add modules* nachinstallieren.
 
-Danach `npm run dev` beziehungsweise `docker compose … up --build`. Solange kein Build vorhanden ist,
-zeigt `/play` die Szenendaten als Liste; die Datenkette ist also auch ohne Unity prüfbar.
+Danach den Frontend-Container neu bauen, sonst liefert er noch die alte Auslieferung aus:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build frontend
+```
+
+Der Build selbst ist **bewusst nicht versioniert** (`frontend/public/game/` steht in `.gitignore`):
+57 MB Binärdaten, die aus diesem Projekt jederzeit neu entstehen. Solange keiner vorliegt, zeigt `/play`
+die Szenendaten als Liste — die Datenkette ist damit auch ohne Unity vorführbar.
 
 ## Was dieses Projekt vorgibt
 
