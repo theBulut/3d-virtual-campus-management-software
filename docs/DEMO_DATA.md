@@ -41,36 +41,44 @@ nicht angelegt.
 
 ## Gebäude (5)
 
-| Schlüssel | Name | Szenenposition (x/z) | veröffentlicht |
+| Schlüssel | Name | Objekt in der Szene | veröffentlicht |
 |---|---|---|---|
-| `S1\|03` | Altes Hauptgebäude | 0 / 0 | ja |
-| `S2\|02` | Piloty-Gebäude | 60 / 20 | ja |
-| `S1\|01` | Karo 5 | −40 / 15 | ja |
-| `S3\|21` | Hörsaalgebäude | 25 / 90 | ja |
-| `L4\|01` | Lichtwiese Mensa | 120 / 140 | nein — belegt, dass die Filterung greift |
+| `S1\|03` | Altes Hauptgebäude | `S103` | ja |
+| `S2\|02` | Robert-Piloty-Gebäude | `S202` | ja |
+| `S1\|01` | Universitätszentrum (Karo 5) | `S101` | ja |
+| `S1\|20` | Universitäts- und Landesbibliothek | `S120` | ja |
+| `S3\|06` | Hans-Busch-Institut (ETIT) | `S306` | nein — belegt, dass die Filterung greift |
 
-Die Szenenkoordinaten sind frei gewählt und haben mit Länge und Breite nichts zu tun: Sie beschreiben,
-wo das Gebäude in der Unity-Szene steht. Sobald das FEC-Projekt zugänglich ist, werden sie an dessen
-Koordinatensystem angepasst.
+Alle fünf sind echte Häuser des Campus Stadtmitte und stehen als fertiges Modell in der FEC-Szene. Der
+Schlüssel ist die Verbindung: `S1|03` wird auf Buchstaben und Ziffern reduziert und findet so `S103`
+(`docs/DECISIONS.md` D-46). Namen und Adressen folgen denen, die das FEC-Projekt in
+`Assets/Resources/CSVFiles/Buildings_Overview.csv` führt.
+
+Die Spalten `position_x/y/z` und `rotation_y` der Gebäude sind damit im FEC-Campus ohne Wirkung — dort
+steht das Haus, wo sein Modell steht. Sie greifen nur in der Sandkastenszene, die keine Gebäude hat.
 
 ## POIs (12, über alle vier Zustände)
 
 | Name | Gebäude | Status | Eigentum | Rolle in der Vorführung |
 |---|---|---|---|---|
-| Audimax | S1\|03 | PUBLISHED | demo_mitarbeit | erscheint in `/api/public/pois` |
-| Universitäts- und Landesbibliothek | S1\|01 | PUBLISHED | demo_mitarbeit | |
-| Mensa Stadtmitte | S1\|03 | PUBLISHED | demo_mitarbeit | |
-| Studierendensekretariat | S1\|01 | PUBLISHED | demo_leitung | veröffentlicht **und** fremd |
+| Audimax | S1\|01 | PUBLISHED | demo_mitarbeit | erscheint in `/api/public/pois` |
+| Universitäts- und Landesbibliothek | S1\|20 | PUBLISHED | demo_mitarbeit | |
+| Cafeteria Karo 5 | S1\|01 | PUBLISHED | demo_mitarbeit | |
+| Studierendensekretariat | S1\|03 | PUBLISHED | demo_leitung | veröffentlicht **und** fremd |
 | Rechnerpool Piloty | S2\|02 | PUBLISHED | demo_mitarbeit | eigener, aber veröffentlicht: nicht mehr änderbar |
-| Hörsaal S3\|21 001 | S3\|21 | IN_REVIEW | demo_mitarbeit | liegt in der Freigabe-Warteschlange |
+| Hörsaal S1\|03 23 | S1\|03 | IN_REVIEW | demo_mitarbeit | liegt in der Freigabe-Warteschlange |
 | Fachschaft Informatik | S2\|02 | IN_REVIEW | demo_mitarbeit | zweiter Eintrag zum Zurückweisen |
 | Cafeteria Piloty | S2\|02 | DRAFT | demo_mitarbeit | **fremder Entwurf** für den Eigentumstest |
-| Lernzentrum Lichtwiese | L4\|01 | DRAFT | demo_mitarbeit | |
+| Lernzentrum ULB | S1\|20 | DRAFT | demo_mitarbeit | |
 | Fahrradwerkstatt | S1\|03 | DRAFT | demo_mitarbeit | trägt eine Zurückweisungsbegründung |
-| Sprachenzentrum | S1\|01 | ARCHIVED | demo_leitung | archiviert ist endgültig |
+| Sprachenzentrum | S1\|03 | ARCHIVED | demo_leitung | archiviert ist endgültig |
 | Alter Serverraum | S2\|02 | ARCHIVED | demo_leitung | |
 
 Damit sind alle vier Zustände besetzt, und `/api/public/pois` liefert genau die fünf veröffentlichten.
+
+`position_x/y/z` liegt bei allen zwölf zwischen −8 und 8: Die Werte sind ein Versatz in Metern vom
+Ankerpunkt über dem Dach des jeweiligen Gebäudes, kein Ort (D-47). Sie fächern die Punkte eines Hauses
+auf, damit sie sich nicht überdecken.
 
 ## Beratungszeiten (4 Angebote, 6 Termine)
 

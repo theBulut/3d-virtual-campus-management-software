@@ -37,11 +37,12 @@ Der Phasenplan steht in `docs/spec/02_IMPLEMENTIERUNGSPLAN.md`, Abschnitt 2.
 | 4 | Autorisierung, Nutzer- und Rollenverwaltung | ✅ |
 | 5 | Audit-Log | ✅ |
 | 6 | Content: POI, Gebäude, Beratungszeiten, Medien | ✅ |
-| 7 | Frontend | teilweise — Kern steht, siehe unten |
+| 7 | Frontend | ✅ |
 | 8 | Härtung, Dokumentation, Evaluation | offen |
 | 9 | Registrierung und Spielerkonten | ✅ |
 | 10 | Szenen-API und Spielstand für Unity | ✅ |
 | 11 | Unity-Anbindung (Szene, Spielstand, WebGL im Browser) | ✅ |
+| 12 | FEC-Campus als Spielumgebung | ✅ |
 
 Beim Start sind die sechs Rollen, 37 Berechtigungen und die Vergaberegeln bereits in der Datenbank, und
 ein initialer Administrator existiert (Standard `admin`/`admin`, siehe `.env.example`).
@@ -75,13 +76,25 @@ curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_studi
 curl -s localhost:8080/api/game/scene -H "Authorization: Bearer $(tok demo_leitung)" | jq '.pois | length'   # 12
 ```
 
-Die Unity-Anbindung liegt in [game/](game/) — sieben C#-Skripte und ein JavaScript-Plugin, die ohne
-Änderung in das FEC-Projekt übernommen werden können.
+### Die Spielumgebung
 
-Der **WebGL-Build ist nicht im Repository**: rund 57 MB Binärdaten, die sich jederzeit neu erzeugen
-lassen. Nach einem frischen Klon zeigt `/play` deshalb die Szenendaten als Liste — mit denselben
-Inhalten und demselben Spielstand, nur ohne 3D. Wer das Spiel selbst sehen will, öffnet das Projekt in
-`game/` und ruft **Campus → WebGL-Build erzeugen** auf; danach den Frontend-Container einmal neu bauen.
+Der Campus ist der 3D-Campus der AG Serious Games — `serious-games-darmstadt/3d-virtual-campus`, Branch
+`FECP_Bulut`, Szene `Assets/Scenes/Web.unity`. Dieses Projekt liegt **nicht** im Repository (rund 4 GB,
+fremdes Team, `docs/DECISIONS.md` D-45); in [game/campus-bridge/](game/campus-bridge/) steht nur, was
+beide Seiten verbindet: elf C#-Dateien und ein JavaScript-Plugin. `./game/install-bridge.sh <pfad>`
+spielt sie in einen Checkout ein, **Campus → Anbindung in aktuelle Szene einfügen** setzt sie in die
+Szene. Die vollständige Anleitung steht in [game/README.md](game/README.md).
+
+Verbunden werden die beiden Seiten über den Gebäudeschlüssel: `S1|03` in der Verwaltung findet das
+Modell `S103` in der Szene, weil beide auf Buchstaben und Ziffern reduziert werden (D-46). Ein POI steht
+dann über *seinem* Gebäude, und `position_x/y/z` ist ein Versatz in Metern (D-47) — wer im Browser einen
+Punkt anlegt, braucht keine Weltkoordinate einer fremden Unity-Szene zu kennen.
+
+Der **WebGL-Build ist nicht im Repository**: mehrere hundert MB Binärdaten, die sich jederzeit neu
+erzeugen lassen. Nach einem frischen Klon zeigt `/play` deshalb die Szenendaten als Liste — mit
+denselben Inhalten und demselben Spielstand, nur ohne 3D. Der Ordner `frontend/public/game` ist in den
+Frontend-Container eingehängt (D-48): nach einem neuen Unity-Build genügt
+`docker compose restart frontend`, das Image muss nicht neu gebaut werden.
 
 Unter `/api/auth/**` liegen Anmeldung, Token-Erneuerung mit Rotation, Abmeldung und das eigene Profil.
 Ohne Token antwortet jeder Pfad außer `/api/health` und `/api/auth/login|refresh` mit `401`.
@@ -149,6 +162,8 @@ Die Oberfläche ist auf die Teile ausgerichtet, die das Rollenmodell sichtbar ma
 | Rollen & Rechte (vollständige Matrix) | `/admin/roles/matrix` | `ROLE_READ` |
 | POI-Liste und -Editor mit Workflow | `/admin/pois`, `/admin/pois/:id` | `POI_READ_ALL` |
 | Freigabe-Warteschlange | `/admin/pois/review` | `POI_PUBLISH` |
+| Gebäudeliste und -maske mit Szenenkoordinaten | `/admin/buildings`, `/admin/buildings/:id` | `BUILDING_READ_ALL` |
+| Beratungsangebote mit Sprechzeiten-Editor | `/admin/consultations`, `/admin/consultations/:id` | `CONSULTATION_READ_ALL` |
 | Audit-Log | `/admin/audit` | `AUDIT_READ` oder `AUDIT_READ_CONTENT` |
 
 Die Sidebar blendet Punkte anhand der Berechtigungsliste aus dem Token aus, `Can` verbirgt einzelne
@@ -156,8 +171,8 @@ Schaltflächen. Beides ist Bedienkomfort und **keine** Absicherung: Wer eine ges
 die URL aufruft, sieht die 403-Seite, und der zugehörige API-Aufruf wird ebenfalls mit 403 abgewiesen und
 im Audit-Log vermerkt (`docs/DECISIONS.md` D-38).
 
-Noch nicht gebaut: Gebäude- und Beratungszeiten-Masken, Medien-Upload, Nutzer bearbeiten und die
-System-Seite. Die zugehörigen Endpunkte existieren und sind getestet.
+Noch nicht gebaut: Medien-Upload, Nutzer bearbeiten und die System-Seite. Die zugehörigen Endpunkte
+existieren und sind getestet.
 
 ```bash
 curl -X POST http://localhost:8080/api/auth/login \

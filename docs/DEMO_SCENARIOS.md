@@ -1,6 +1,6 @@
 # Manuelle Testszenarien
 
-Zehn Abläufe, die den Stand der Anwendung von Hand prüfen. Jedes Szenario nennt am Ende, welche
+Zwölf Abläufe, die den Stand der Anwendung von Hand prüfen. Jedes Szenario nennt am Ende, welche
 Anforderung oder welches Evaluationsszenario aus `spec/02_IMPLEMENTIERUNGSPLAN.md` es belegt.
 
 Alle Angaben beziehen sich auf den Containerbetrieb mit Demo-Daten. Die Daten selbst sind in
@@ -158,3 +158,55 @@ löschen. **Nicht** neu laden, sondern in der Sidebar auf *Rollen & Rechte* klic
 `auth/refresh` 200, `roles/matrix` 200 — und in Local Storage liegt ein neues Token-Paar. Ein zweites
 Mal mit dem alten Refresh-Token endet auf `401`, weil bei jeder Erneuerung rotiert wird.
 **Belegt:** FA-02, FA-03
+
+## 11 · Ein Beratungsangebot anlegen und veröffentlichen
+
+Als `demo_personal` anmelden → *Beratungsangebote* → *Angebot anlegen*. Titel „Sprechstunde
+Studienbüro", Einrichtung „Studienbüro Informatik", Gebäude `S2|02`, Raum `B217`, speichern. Danach eine
+Sprechzeit ergänzen: Dienstag, 14:00–15:30, *Hinzufügen*.
+
+Anschließend dasselbe Angebot als `demo_leitung` öffnen und *Veröffentlicht* setzen.
+
+**Erwartet:** Bei `demo_personal` gibt es kein Veröffentlichen-Kästchen, sondern den Hinweis, dass dafür
+`CONSULTATION_UPDATE_ANY` nötig ist — die Sprechzeit lässt sich trotzdem eintragen. Bei `demo_leitung`
+erscheint das Kästchen. Gegenprobe:
+
+```bash
+curl -s localhost:8080/api/public/consultations | python3 -m json.tool | grep -c 'Studienbüro'
+```
+
+Vor der Freigabe `0`, danach `1`. Ein `published: true` im PUT von `demo_personal` wird stillschweigend
+verworfen, nicht mit 403 beantwortet (D-34).
+**Belegt:** FA-13, D-34
+
+## 12 · Vom Formular in den 3D-Campus
+
+Setzt einen WebGL-Build voraus (siehe [../game/README.md](../game/README.md)). Ohne Build zeigt `/play`
+dieselben Daten als Liste — der Ablauf funktioniert dann genauso, nur ohne 3D.
+
+Zwei Fenster, zwei Konten.
+
+1. **`demo_studi`** anmelden. Landet auf `/play`, läuft über den Campus. Über den Häusern stehen fünf
+   Marker, keiner orange, kein Abzeichen oben rechts. Ein Klick auf den Marker am
+   Robert-Piloty-Gebäude zeigt „Rechnerpool Piloty" und darunter die Sprechzeiten der Studienberatung
+   Informatik — Punkt, Gebäude und Angebot sind getrennt eingetragen worden.
+2. **`demo_leitung`** im zweiten Fenster → *POIs* → *POI anlegen*. Name „Testpunkt Betreuung", Gebäude
+   `S1|03`, Koordinaten `0 / 0 / 0`, speichern. Der Punkt steht im Status Entwurf; als `demo_leitung`
+   direkt *Zur Prüfung einreichen* und *Freigeben*.
+3. Fenster von `demo_studi` neu laden.
+4. In `/admin/users` das Konto `demo_studi` um die Rolle `PROJEKTMITARBEITER` erweitern, dort `/play`
+   neu laden.
+5. Als `demo_leitung` den Testpunkt *Archivieren*, bei `demo_studi` neu laden.
+
+**Erwartet:**
+
+- Schritt 3: der neue Marker steht über dem Alten Hauptgebäude, nicht im Nirgendwo — `position` ist ein
+  Versatz zum Gebäude (D-47).
+- Schritt 4: dieselbe URL zeigt jetzt zwölf Marker, sieben davon orange, und oben rechts steht
+  „Redaktionsansicht — Entwürfe sichtbar". Nachgefragt wurde das nirgends: das Abzeichen folgt daraus,
+  dass die Antwort ein `status`-Feld enthält (D-42).
+- Schritt 5: der Punkt ist wieder verschwunden.
+- In der Browser-Konsole steht beim Laden `Gebäude gebunden: S101, S103, S120, S202 · nicht in der
+  Szene gefunden: —`. Für `demo_leitung` kommt `S306` dazu, das unveröffentlichte Gebäude.
+
+**Belegt:** FA-24, D-42, D-46, D-47
