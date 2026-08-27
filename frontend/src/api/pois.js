@@ -19,4 +19,6 @@ export const archivePoi = (id) => post(`/pois/${id}/archive`);
 
 export const assignPoi = (id, userId) => patch(`/pois/${id}/assignee`, { userId });
 
-export const fetchBuildings = () => get('/buildings');
+// The POI editor needs the building list for its dropdown. Re-exported rather than duplicated: the
+// building calls live in their own module since they got a mask of their own.
+export { fetchBuildings } from './buildings';
