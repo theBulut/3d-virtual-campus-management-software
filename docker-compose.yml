@@ -8,6 +8,12 @@ services:
       - backend
     ports:
       - "3000:3000"
+    volumes:
+      # The WebGL build is mounted, not copied into the image (docs/DECISIONS.md D-48). A campus build
+      # is several hundred MB; baking it in would mean rebuilding the image after every Unity build.
+      # Mounted read-only, and if the folder is empty — a fresh clone, no Unity — /play falls back to
+      # the scene data as a list, which is the same behaviour as before.
+      - ./frontend/public/game:/usr/share/nginx/html/game:ro
 
   backend:
     build:

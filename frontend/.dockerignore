@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .git/
+# The Unity build is mounted at runtime, not baked in (docs/DECISIONS.md D-48). Copying it here would
+# add several hundred MB to the image and to every `docker compose build`.
+public/game/
