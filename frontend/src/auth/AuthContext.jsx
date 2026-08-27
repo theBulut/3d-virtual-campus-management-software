@@ -13,6 +13,11 @@ const ADMIN_ENTRY_PERMISSIONS = [
   'ROLE_READ',
   'POI_READ_ALL',
   'POI_PUBLISH',
+  // PERSONAL holds neither of the POI permissions but maintains the consultation offers of its own
+  // institution. Without these two entries that role would be sent to the game and never find the
+  // pages it exists for.
+  'BUILDING_READ_ALL',
+  'CONSULTATION_READ_ALL',
   'AUDIT_READ',
   'AUDIT_READ_CONTENT',
 ];

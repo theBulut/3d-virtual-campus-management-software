@@ -11,6 +11,10 @@ import PlayPage from './pages/PlayPage';
 import ProfilePage from './pages/ProfilePage';
 import RegisterPage from './pages/RegisterPage';
 import AuditLogPage from './pages/audit/AuditLogPage';
+import BuildingFormPage from './pages/buildings/BuildingFormPage';
+import BuildingListPage from './pages/buildings/BuildingListPage';
+import ConsultationFormPage from './pages/consultations/ConsultationFormPage';
+import ConsultationListPage from './pages/consultations/ConsultationListPage';
 import ForbiddenPage from './pages/errors/ForbiddenPage';
 import NotFoundPage from './pages/errors/NotFoundPage';
 import PoiEditorPage from './pages/pois/PoiEditorPage';
@@ -71,6 +75,22 @@ export default function App() {
                 </Route>
                 <Route element={<RequirePermission anyOf={['POI_PUBLISH']} />}>
                   <Route path="admin/pois/review" element={<PoiListPage reviewQueue />} />
+                </Route>
+
+                <Route element={<RequirePermission anyOf={['BUILDING_READ_ALL']} />}>
+                  <Route path="admin/buildings" element={<BuildingListPage />} />
+                  <Route path="admin/buildings/:id" element={<BuildingFormPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={['BUILDING_CREATE']} />}>
+                  <Route path="admin/buildings/new" element={<BuildingFormPage />} />
+                </Route>
+
+                <Route element={<RequirePermission anyOf={['CONSULTATION_READ_ALL']} />}>
+                  <Route path="admin/consultations" element={<ConsultationListPage />} />
+                  <Route path="admin/consultations/:id" element={<ConsultationFormPage />} />
+                </Route>
+                <Route element={<RequirePermission anyOf={['CONSULTATION_CREATE']} />}>
+                  <Route path="admin/consultations/new" element={<ConsultationFormPage />} />
                 </Route>
 
                 <Route element={<RequirePermission anyOf={['AUDIT_READ', 'AUDIT_READ_CONTENT']} />}>

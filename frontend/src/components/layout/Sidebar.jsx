@@ -12,6 +12,8 @@ const MENU = [
   { to: '/admin/roles/matrix', label: 'Rollen & Rechte', anyOf: ['ROLE_READ'] },
   { to: '/admin/pois', label: 'POIs', anyOf: ['POI_READ_ALL'] },
   { to: '/admin/pois/review', label: 'Freigabe-Warteschlange', anyOf: ['POI_PUBLISH'] },
+  { to: '/admin/buildings', label: 'Gebäude', anyOf: ['BUILDING_READ_ALL'] },
+  { to: '/admin/consultations', label: 'Beratungsangebote', anyOf: ['CONSULTATION_READ_ALL'] },
   { to: '/admin/audit', label: 'Audit-Log', anyOf: ['AUDIT_READ', 'AUDIT_READ_CONTENT'] },
 ];
 

@@ -60,12 +60,33 @@ test('MAINTENANCE_DEV sieht ausschließlich Audit-Log und Rollen, keine Inhalte'
   expect(screen.queryByText('Nutzerverwaltung')).not.toBeInTheDocument();
 });
 
-test('PERSONAL sieht nur das Dashboard', async () => {
-  renderSidebar(['PROFILE_UPDATE_OWN', 'CONSULTATION_READ_ALL', 'POI_READ_PUBLISHED']);
+test('PERSONAL sieht Beratungsangebote und Gebäude, aber keine POIs', async () => {
+  renderSidebar([
+    'PROFILE_UPDATE_OWN',
+    'POI_READ_PUBLISHED',
+    'BUILDING_READ_PUBLIC',
+    'BUILDING_READ_ALL',
+    'CONSULTATION_READ_PUBLIC',
+    'CONSULTATION_READ_ALL',
+    'CONSULTATION_CREATE',
+    'CONSULTATION_UPDATE_OWN',
+  ]);
 
-  expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+  expect(await screen.findByText('Beratungsangebote')).toBeInTheDocument();
+  expect(screen.getByText('Gebäude')).toBeInTheDocument();
+  // The offers of its own institution, not the campus content: POI_READ_ALL is missing, and so is the
+  // menu entry that would lead to a 403.
   expect(screen.queryByText('POIs')).not.toBeInTheDocument();
+  expect(screen.queryByText('Nutzerverwaltung')).not.toBeInTheDocument();
   expect(screen.queryByText('Audit-Log')).not.toBeInTheDocument();
+});
+
+test('MAINTENANCE_DEV sieht auch die neuen Inhaltsmasken nicht', async () => {
+  renderSidebar(['ROLE_READ', 'AUDIT_READ', 'AUDIT_READ_CONTENT', 'SYSTEM_HEALTH_READ', 'PROFILE_UPDATE_OWN']);
+
+  expect(await screen.findByText('Audit-Log')).toBeInTheDocument();
+  expect(screen.queryByText('Gebäude')).not.toBeInTheDocument();
+  expect(screen.queryByText('Beratungsangebote')).not.toBeInTheDocument();
 });
 
 test('ein frisch angelegtes Konto sieht ausschließlich das Dashboard', async () => {
