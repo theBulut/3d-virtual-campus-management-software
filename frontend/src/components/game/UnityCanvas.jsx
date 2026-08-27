@@ -130,7 +130,15 @@ const UnityCanvas = forwardRef(function UnityCanvas({ provideToken, children }, 
   return (
     <div className="play__stage">
       <canvas ref={canvasRef} className="play__canvas" id="unity-canvas" />
-      {status === 'loading' && <p className="play__progress">Campus wird geladen … {progress}%</p>}
+      {status === 'loading' && (
+        <p className="play__progress">
+          Campus wird geladen … {progress}%
+          {/* The campus build is a few hundred MB. Saying so beats a progress bar that looks stuck. */}
+          <span className="play__progress-note">
+            Beim ersten Aufruf dauert das einige Minuten; danach liegt der Build im Browser-Cache.
+          </span>
+        </p>
+      )}
     </div>
   );
 });
