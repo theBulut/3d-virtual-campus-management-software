@@ -747,3 +747,90 @@ den aktuellen Stand ab. Unity speichert nichts.
 Sie ein zweites Mal in C# zu bauen hieße, zwei Implementierungen derselben Regel synchron zu halten —
 und die zweite wäre die, die niemand testet. Dass Unity jedes Mal nachfragt statt eine Kopie zu halten,
 kostet nichts und macht die Rotation für das Spiel unsichtbar.
+
+---
+
+## D-45 — Das FEC-Projekt bleibt ein Nebenklon, im Repository liegt nur die Brücke
+
+**Kontext.** Die Spielumgebung ist nicht mehr die selbst gebaute Platzhalterszene, sondern der fertige
+3D-Campus der AG Serious Games (`serious-games-darmstadt/3d-virtual-campus`, Branch `FECP_Bulut`). Der
+Checkout ist rund 4 GB groß und gehört einem fremden Team. Drei Wege standen zur Wahl: als Submodul
+einbinden, das Projekt einkopieren, oder getrennt halten.
+
+**Entscheidung.** Getrennt. Im Repository liegt `game/campus-bridge/` — elf C#-Dateien, ein
+JavaScript-Plugin und drei Materialien. `game/install-bridge.sh <pfad>` spielt diesen Ordner nach
+`<pfad>/Assets/Campus/` ein und schreibt `<pfad>/CampusBuild.json` mit dem absoluten Ausgabepfad. Der
+FEC-Checkout wird einmal von Hand geklont.
+
+Im selben Zug fällt der tote Gitlink: `game/My project` stand als Mode `160000` ohne `.gitmodules` im
+Index, ein frischer Klon bekam also einen leeren Ordner. Das Sandkastenprojekt bleibt lokal nutzbar und
+wird von demselben Skript versorgt, steht aber jetzt in `.gitignore`.
+
+**Begründung.** Ein Submodul auf einen laufenden Studierendenbranch würde die Reproduzierbarkeit
+vortäuschen, die es nicht gibt — der Branch bewegt sich, und das Repository ist privat. Einkopieren
+hieße, mehrere Gigabyte Fremdcode in die Historie einer Bachelorarbeit zu legen, ohne Rückverfolgung
+zum Original. So bleibt sichtbar, was eigene Arbeit ist: der Ordner, der beide Seiten verbindet.
+
+---
+
+## D-46 — Gebäude werden gebunden statt gespawnt
+
+**Kontext.** Der `SceneLoader` erzeugte pro Gebäude einen Quader aus `building.position_x/y/z`. Im
+FEC-Campus steht jedes Haus bereits als fertiges Modell — und zwar benannt nach seinem amtlichen
+TU-Schlüssel ohne Trennzeichen: `S103`, `S202`, `S120`.
+
+**Entscheidung.** Zwei Modi am `SceneLoader`. In `Bind` (Vorgabe im FEC-Projekt) sucht
+`CampusBuildingRegistry` das vorhandene Objekt, indem beide Seiten auf Buchstaben und Ziffern reduziert
+werden: `S1|03` → `S103`. Gefunden heißt: nichts wird erzeugt, das Haus bleibt, wo es steht. In `Spawn`
+gilt das alte Verhalten, für die Sandkastenszene, die keine Gebäude hat.
+
+Die Demo-Daten tragen darum echte Schlüssel des Campus Stadtmitte; zwei Lichtwiese-Gebäude, die die
+Szene nicht abdeckt, sind ersetzt worden.
+
+**Begründung.** Eine Datenbankkoordinate ist bestenfalls eine Schätzung dessen, wo ein von Hand
+platziertes Modell schon steht — der Quader stünde daneben, nicht darauf. Der Schlüssel ist ohnehin da
+und in beiden Projekten dasselbe Ding; ihn zu benutzen ist billiger und ehrlicher als ein zweites
+Koordinatensystem zu pflegen. Die Konsolenzeile „Gebäude gebunden: … · nicht gefunden: …" macht bei der
+Vorführung sichtbar, dass Verwaltung und Szene zusammenfinden — und benennt einen Tippfehler, statt ihn
+als fehlendes Gebäude erscheinen zu lassen.
+
+---
+
+## D-47 — POI-Koordinaten sind ein Versatz zum Gebäude
+
+**Kontext.** `poi.position_x/y/z` waren Weltkoordinaten. Wer im Verwaltungswerkzeug einen Punkt anlegt,
+kennt die Weltkoordinaten einer fremden Unity-Szene aber nicht, und für die Vorführung soll ein neu
+angelegter Punkt am richtigen Haus erscheinen — ohne Umweg über den Unity-Editor.
+
+**Entscheidung.** Hat der POI ein Gebäude und ist dieses in der Szene gebunden, gilt `position` als
+Versatz in Metern vom Ankerpunkt über dessen Dach. Ohne Gebäude, oder wenn die Szene den Schlüssel nicht
+kennt, bleiben es Weltkoordinaten. Kein neues Feld, keine Migration: `poi.building_id` und das
+Gebäude-Auswahlfeld im POI-Editor existieren bereits.
+
+**Begründung.** Die Alternative wäre ein `anchor_mode` gewesen — Spalte, Migration, DTO, Formularfeld
+und eine Fallunterscheidung mehr, für eine Unterscheidung, die aus den Daten schon folgt: Wer ein
+Gebäude gewählt hat, meint einen Ort *an diesem Gebäude*. Der Preis ist, dass dieselben drei Zahlen je
+nach Szene verschieden gelesen werden; das steht am Feld im Formular und in dieser Entscheidung.
+
+---
+
+## D-48 — Der Build wird eingehängt statt einkopiert, nginx komprimiert im Flug
+
+**Kontext.** D-43 hält fest, dass der WebGL-Build vom Frontend-nginx kommt — daran ändert sich nichts.
+Nur war er bisher über `frontend/public/` in das Image kopiert: jeder Unity-Build verlangte
+`docker compose up --build frontend`. Bei der Platzhalterszene waren das 57 MB, beim ganzen Campus sind
+es mehrere hundert.
+
+**Entscheidung.** `docker-compose.yml` hängt `./frontend/public/game` schreibgeschützt nach
+`/usr/share/nginx/html/game` ein, `frontend/.dockerignore` hält den Ordner aus dem Image heraus. Ein
+neuer Build ist nach `docker compose restart frontend` da. Fehlt der Ordner oder ist er leer, greift
+weiter die Listenansicht unter `/play`.
+
+Die Kompression übernimmt nginx (`gzip on` für `/game/`), nicht Unity: `CampusBuild` lässt das
+Compression Format auf `Disabled`. `build-info.json` bekommt einen eigenen `location`-Block mit
+`Cache-Control: no-cache` — es ist die eine Datei, die sich je Build ändert.
+
+**Begründung.** Ein Bindemount ist genau die Trennung, die hier gilt: der Build ist ein Artefakt, kein
+Bestandteil der Anwendung. Und die Kompression gehört auf die Seite, die auch den `Content-Encoding`-Header
+setzt. Vorkomprimierte `.br`-Dateien ohne passenden Header waren schon einmal die Ursache dafür, dass gar
+nichts lud (`game/README.md`); wenn nginx selbst komprimiert, können die beiden nicht auseinanderlaufen.
