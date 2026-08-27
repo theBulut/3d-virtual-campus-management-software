@@ -452,12 +452,54 @@ a {
 
 .form {
   max-width: 34rem;
+
+  /* The slot editor of a consultation offer needs a row of five fields side by side. */
+  &--wide {
+    max-width: 52rem;
+  }
+
+  &__group {
+    border: 1px solid $color-line;
+    border-radius: $radius;
+    padding: 0.9rem 1rem 0.4rem;
+    margin: 0 0 1rem;
+  }
+
+  &__legend {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $color-muted;
+    padding: 0 0.35rem;
+  }
 }
 
+/* auto-fit rather than a fixed three: the same class carries the three coordinates of a POI, the two
+   halves of a postcode and town, and the four values of a building transform. */
 .coordinates {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
   gap: 0.75rem;
+}
+
+.slots {
+  &__row {
+    display: grid;
+    grid-template-columns: 7rem 7rem 7rem 1fr auto;
+    gap: 0.6rem;
+    align-items: end;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid $color-line;
+
+    &:last-of-type {
+      border-bottom: none;
+    }
+  }
+
+  &__empty {
+    margin: 0.4rem 0 0.8rem;
+    font-size: 0.88rem;
+    color: $color-muted;
+  }
 }
 
 .checkbox-group {
@@ -773,8 +815,18 @@ a {
     inset: 0;
     display: grid;
     place-items: center;
+    align-content: center;
+    gap: 0.4rem;
+    text-align: center;
     color: #b9c4cd;
     margin: 0;
+  }
+
+  &__progress-note {
+    display: block;
+    font-size: 0.85rem;
+    opacity: 0.7;
+    max-width: 28rem;
   }
 
   &__fallback {
