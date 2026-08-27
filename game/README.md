@@ -1,47 +1,121 @@
 # Unity-Anbindung
 
-Die Brücke zwischen der Verwaltung und dem 3D-Campus: sieben C#-Skripte und ein JavaScript-Plugin. Sie
-hängen an keiner Spiellogik, nur an der API, und lassen sich als Ordner in das bestehende FEC-Projekt
-übernehmen.
+Die Brücke zwischen der Verwaltung und dem 3D-Campus. Sie hängt an keiner Spiellogik, nur an der API,
+und wird als Ordner in ein bestehendes Unity-Projekt eingespielt.
 
-Das Unity-Projekt liegt unter `My project/` (von Unity Hub so angelegt), die Anbindung darin unter
-`My project/Assets/Campus/`.
+Die Spielumgebung ist der 3D-Campus der AG Serious Games —
+`serious-games-darmstadt/3d-virtual-campus`, Branch **`FECP_Bulut`**, Szene `Assets/Scenes/Web.unity`.
+Dieses Projekt liegt **nicht** im Repository (rund 4 GB, fremdes Team, siehe `docs/DECISIONS.md` D-45);
+hier steht nur, was beide Seiten verbindet.
 
 | Datei | Aufgabe |
 |---|---|
+| `Campus.asmdef` · `Editor/Campus.Editor.asmdef` | eigene Assemblies für die Brücke — siehe unten |
 | `Scripts/WebBridge.cs` | Token und API-Adresse von der Webseite; muss auf einem GameObject namens **`WebBridge`** liegen |
 | `Plugins/WebBridge.jslib` | die Browserseite derselben Brücke |
 | `Scripts/SceneModel.cs` | die Datenklassen zu `GET /api/game/scene` |
-| `Scripts/SceneLoader.cs` | lädt die Szene und baut sie auf |
+| `Scripts/SceneLoader.cs` | lädt die Szene und setzt sie in die Welt |
+| `Scripts/CampusBuildingRegistry.cs` | findet die Gebäude der Szene über ihren Schlüssel |
 | `Scripts/PoiMarker.cs` | kennt die Daten eines Punktes und formuliert den Infotext |
-| `Scripts/CampusInput.cs` | Kamera bewegen und Punkte anklicken (neues Input System) |
-| `Scripts/InfoPanel.cs` | das Textfeld dafür |
+| `Scripts/CampusUi.cs` | eigener Overlay-Canvas: Infofeld und Redaktions-Abzeichen |
+| `Scripts/CampusInteraction.cs` | Klick bzw. `E` auf einen Punkt, `Esc` schließt |
+| `Scripts/CampusInput.cs` | Freiflug-Kamera — nur für die Sandkastenszene |
+| `Scripts/InfoPanel.cs` | das Textfeld der Sandkastenszene |
 | `Scripts/GameStateClient.cs` | lädt und speichert den Spielstand des Kontos |
-| `Editor/CampusSceneBuilder.cs` | erzeugt die komplette Szene auf Knopfdruck |
+| `Editor/CampusSceneInjector.cs` | fügt die Anbindung in eine **bestehende** Szene ein |
+| `Editor/CampusSceneBuilder.cs` | erzeugt eine Sandkastenszene aus dem Nichts |
 | `Editor/CampusBuild.cs` | baut nach `frontend/public/game` mit den richtigen Einstellungen |
+| `Editor/CampusAccountMenu.cs` | Editor-Konto umschalten (`demo_studi` / `demo_leitung` / `demo_admin`) |
 
-## Szene erzeugen
+## Einmal einrichten
 
-In Unity: **Campus → Szene erzeugen**.
+```bash
+# 1. Unity 6000.3.8f1 mit WebGL-Modul über Unity Hub installieren.
+#    Dieselbe Version wie das FEC-Projekt: ein neuerer Editor zieht es beim Öffnen hoch —
+#    alle Assets neu importiert und ein Diff, um den niemand gebeten hat.
 
-Das legt `Assets/Campus/Scenes/CampusScene.unity` an, mit Boden, Kamera samt Steuerung, `WebBridge`,
-`Campus` (der `SceneLoader`), `GameState` und dem Info-Panel — alle Felder verdrahtet, die Materialien
-als URP-Material erzeugt. Die Szene wird zugleich als einzige in die Build Settings eingetragen.
+# 2. Das FEC-Projekt neben dieses Repository klonen (rund 4 GB):
+git clone --depth 1 --branch FECP_Bulut \
+    git@github.com:serious-games-darmstadt/3d-virtual-campus.git ~/projects/fec-campus
 
-Von Hand ist daran nichts mehr zu tun; ein zweiter Aufruf erzeugt dieselbe Szene erneut.
+# 3. Die Brücke einspielen:
+./game/install-bridge.sh ~/projects/fec-campus
+
+# 4. Unity Hub → Add project from disk → ~/projects/fec-campus
+```
+
+Schritt 3 kopiert `game/campus-bridge/` nach `<projekt>/Assets/Campus/` und schreibt
+`<projekt>/CampusBuild.json` mit dem absoluten Pfad auf `frontend/public/game`. Nach jeder Änderung an
+der Brücke einfach erneut aufrufen — das Skript ist dafür gemacht.
+
+## In Unity
+
+1. `Assets/Scenes/Web.unity` öffnen.
+2. **Campus → Anbindung in aktuelle Szene einfügen**.
+
+Das legt `WebBridge`, `CampusUI`, `CampusRoot` (mit `SceneLoader`, `CampusBuildingRegistry` und
+`CampusInteraction`) und `GameState` an, verdrahtet die Felder und speichert. Ein zweiter Aufruf meldet
+„nichts zu tun"; vorhandene Objekte werden übernommen, nichts wird überschrieben.
+
+Boden, Kamera und Steuerung kommen nicht dazu — die hat die Szene. Der Spieler läuft mit dem
+`WorldCharacterController` des FEC-Projekts; die Brücke liest genau einen Klick und eine Taste.
+
+Für ein leeres Projekt gibt es weiterhin **Campus → Szene erzeugen**: eine Sandkastenszene mit Boden,
+Freiflug-Kamera und Platzhalterquadern.
+
+## Eigene Assemblies
+
+Die Brücke bringt zwei Assembly Definitions mit: `Campus` für die Laufzeit und `Campus.Editor` für die
+Menüpunkte. Ohne sie fallen die Skripte in die Assembly des Gastprojekts — im FEC-Campus ist das
+`AssemblyDef.asmdef` auf `Assets/`, und das referenziert das Input-System nicht. Ergebnis wäre
+`error CS0234: 'InputSystem' does not exist in 'UnityEngine'`, und weil ein Compilerfehler *alle*
+Skripte des Projekts blockiert, erschiene nicht einmal das `Campus`-Menü.
+
+Mit eigenen Assemblies hängt die Brücke an nichts, was das Gastprojekt zufällig eingetragen hat. Sie
+verlangt dafür zwei Pakete, die beide Projekte ohnehin haben:
+
+- `com.unity.inputsystem` — für `CampusInput` und `CampusInteraction`
+- `com.unity.ugui` (Assembly `UnityEngine.UI`) — für `CampusUi` und `InfoPanel`
+
+Fehlt eines davon im Zielprojekt, meldet Unity die Referenz als unauflösbar; dann in `Campus.asmdef` die
+betreffende Zeile streichen und das zugehörige Skript entfernen.
+
+## Wie Daten und Szene zusammenfinden
+
+**Gebäude** werden gesucht, nicht erzeugt. Beide Seiten werden auf Buchstaben und Ziffern reduziert:
+`S1|03` aus der Datenbank findet das Objekt `S103` in der Szene (D-46). Beim Laden steht in der Konsole,
+welche Schlüssel gebunden wurden:
+
+```
+Gebäude gebunden: S101, S103, S120, S202, S306 · nicht in der Szene gefunden: —
+```
+
+Ein Schlüssel, den die Szene nicht kennt, ist kein Fehler: für ihn gilt weiter
+`building.position_x/y/z` — in der Sandkastenszene ist das der Normalfall.
+
+**POIs** stehen über dem Gebäude, das im Formular gewählt wurde; `position_x/y/z` ist dann ein Versatz
+in Metern (D-47). Ohne Gebäude sind es Weltkoordinaten. Deshalb sind die Werte in den Demo-Daten klein:
+sie fächern die Punkte eines Hauses auf, sie verorten sie nicht.
+
+**Beratungsangebote** haben keine eigene Position. Sie erscheinen im Infotext jedes Punktes, der im
+selben Gebäude steht.
 
 ## Im Editor testen
 
 Ohne Browser gibt es keine Brücke, deshalb meldet sich `WebBridge` im Editor **selbst an**. Voreingestellt
 ist `demo_leitung` / `demo-passwort` gegen `http://localhost:8080/api`; alle drei Werte stehen als Felder
-auf dem Objekt **`WebBridge`**. Es genügt also, das Backend zu starten und Play zu drücken.
+auf dem Objekt **`WebBridge`**. Es genügt also, das Backend zu starten und Play zu drücken:
 
-Zum Rollenvergleich einfach **Editor Username** ändern:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d db redis backend
+```
+
+Zum Rollenvergleich **Campus → Editor-Konto** umschalten:
 
 | Konto | Szene |
 |---|---|
-| `demo_leitung` | 12 Würfel, 5 Gebäude, 7 davon orange (Entwürfe und Eingereichtes) |
-| `demo_studi` | 5 Würfel, 4 Gebäude, keine orangen |
+| `demo_leitung` | 12 Punkte, 5 Gebäude, 7 Punkte orange (Entwürfe und Eingereichtes), Abzeichen „Redaktionsansicht" |
+| `demo_studi` | 5 Punkte, 4 Gebäude, keine orangen, kein Abzeichen |
 
 Genau dieser Unterschied ist der Kern der Sache — dieselbe Szene, dieselbe URL, zwei Rollen.
 
@@ -51,73 +125,70 @@ für ein hartnäckiges 401. Im Zweifel leeren.
 
 Die Anmeldedaten stehen hinter `#if UNITY_EDITOR` und landen nie in einem Build.
 
-Steuerung: WASD bewegen, rechte Maustaste umsehen, Q/E Höhe, Klick auf einen Würfel öffnet sein Infofeld.
+Steuerung im FEC-Campus: die des Projekts (WASD, Maus). Klick oder `E` auf einen Marker öffnet sein
+Infofeld, `Esc` schließt es.
 
 ## WebGL-Build
 
-In Unity: **Campus → WebGL-Build erzeugen**.
+**Campus → WebGL-Build erzeugen**. Ausgabeordner ist der aus `CampusBuild.json`; fehlt die Datei, wird
+einmal gefragt und die Antwort gemerkt.
 
-Das setzt *Compression Format* auf `Disabled` (sonst liefert nginx `.br`-Dateien ohne passenden
-`Content-Encoding`-Header aus und nichts lädt), baut nach `frontend/public/game` und schreibt dort eine
-`build-info.json` mit den tatsächlichen Dateinamen. Die Webseite liest diese Datei — damit ist die
-Einbettung unabhängig davon, wie Unity seine Dateien benennt.
-
-Beim ersten Mal fragt Unity nach dem Plattformwechsel; das dauert einige Minuten. Ist das WebGL-Modul
-nicht installiert, im Unity Hub unter *Installs → Add modules* nachinstallieren.
-
-Danach den Frontend-Container neu bauen, sonst liefert er noch die alte Auslieferung aus:
+Ohne Editor, etwa für ein Protokoll:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build frontend
+/Applications/Unity/Hub/Editor/6000.3.8f1/Unity.app/Contents/MacOS/Unity \
+  -batchmode -quit -nographics \
+  -projectPath ~/projects/fec-campus \
+  -executeMethod Campus.Editor.CampusBuild.BuildFromCommandLine
 ```
 
-Der Build selbst ist **bewusst nicht versioniert** (`frontend/public/game/` steht in `.gitignore`):
-57 MB Binärdaten, die aus diesem Projekt jederzeit neu entstehen. Solange keiner vorliegt, zeigt `/play`
-die Szenendaten als Liste — die Datenkette ist damit auch ohne Unity vorführbar.
+Der erste Lauf wechselt die Plattform auf WebGL und dauert je nach Rechner zwanzig Minuten bis eine
+Stunde. Ist das WebGL-Modul nicht installiert, im Unity Hub unter *Installs → Add modules* nachrüsten.
 
-## Was dieses Projekt vorgibt
+Gesetzt werden dabei drei Dinge, die im Dialog leicht untergehen:
 
-Beim Anlegen über Unity Hub sind zwei Voreinstellungen gesetzt, an denen fremder Beispielcode
-üblicherweise scheitert:
+- *Compression Format* auf `Disabled` — komprimiert wird von nginx, das setzt den passenden
+  `Content-Encoding`-Header gleich mit (D-48). Vorkomprimierte `.br`-Dateien ohne Header waren schon
+  einmal die Ursache dafür, dass gar nichts lud.
+- *Data Caching* an — bei dieser Größe wäre der zweite Start sonst so lang wie der erste.
+- `build-info.json` mit den tatsächlichen Dateinamen. Die Webseite liest sie von dort, statt sie zu
+  raten; Unity hat die Namensregel zwischen Versionen schon geändert.
 
-- **URP** (Universal Render Pipeline) — Materialien brauchen den Shader
-  `Universal Render Pipeline/Lit`, sonst erscheint alles magenta. `CampusSceneBuilder` erzeugt sie
-  entsprechend.
-- **Nur das neue Input System** (`activeInputHandler: 1`) — `Input.GetAxis` und `OnMouseUpAsButton`
-  werfen zur Laufzeit. `CampusInput` benutzt `Keyboard.current` und `Mouse.current`, hält über `#if`
-  aber auch den alten Pfad offen, falls das FEC-Projekt darauf steht.
+Danach genügt:
 
-## Übernahme in das FEC-Projekt
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml restart frontend
+```
 
-Den Ordner `Assets/Campus/` hinüberkopieren und dort **Campus → Szene erzeugen** aufrufen — oder in einer
-bestehenden Szene die vier Objekte selbst anlegen (`WebBridge`, `SceneLoader`, `GameStateClient`,
-`InfoPanel`).
+Kein `--build`: der Ordner ist in den Container eingehängt (D-48).
 
-Die vorhandenen Gebäude bleiben Prefabs und werden über `model_ref` zugeordnet: im `SceneLoader` unter
-*Gebäudemodelle* je Eintrag den Wert aus der Datenbank (etwa `models/s1_03.glb`) mit dem passenden Prefab
-verbinden. Ohne Eintrag entsteht ein Platzhalterquader, das Spiel läuft also auch bei unvollständiger
-Zuordnung.
+Der Build selbst ist **nicht versioniert** (`frontend/public/game/*` steht in `.gitignore`). Solange
+keiner vorliegt, zeigt `/play` die Szenendaten als Liste — die Datenkette ist damit auch ohne Unity
+vorführbar.
 
-Offen, bis das FEC-Repository zugänglich ist: Unity-Version, ob dort ein WebGL-Build konfiguriert ist,
-und in welchem Koordinatensystem die Szene liegt — davon hängt ab, welche Werte in
-`building.position_x/y/z` gehören.
+## Was das FEC-Projekt vorgibt
 
-## Zwei Aufräumarbeiten (optional)
+Nachgesehen im Branch `FECP_Bulut` (Stand `a4427b5`):
 
-1. **Eigenes Git-Repository im Projekt.** Unity Hub hat `My project/.git` mit einem Initial-Commit
-   angelegt. Solange das existiert, nimmt das Hauptrepository den Ordner nicht auf. Zum Einbinden:
+- **Unity 6000.3.8f1**, URP 17.3.0, Input System 1.18.0, `activeInputHandler: 2` (altes *und* neues
+  Input-System). Die Brücke ist über `#if ENABLE_INPUT_SYSTEM` auf beide Pfade vorbereitet.
+- **WebGL ist bereits eingerichtet**: `Web.unity` steht als Szene 0 in den Build Settings,
+  `webGLCompressionFormat` auf `Disabled`.
+- Das **ArcGIS-SDK ist raus** (im README des Projekts als „discontinued" vermerkt, kein Paket im
+  `manifest.json`). `PostBuildProcessor.cs` sucht noch nach `.slpk`-Dateien, protokolliert ihr Fehlen
+  und baut weiter.
+- Die 39 Gebäude tragen den Tag `EnergyGameBuilding` und die Namen `S101` … `S401`; ihre Klarnamen
+  stehen in `Assets/Resources/CSVFiles/Buildings_Overview.csv`.
+- Der Spieler trägt den Tag `Player`. Darüber findet `GameStateClient` ihn, ohne verdrahtet zu werden.
 
-   ```bash
-   rm -rf "game/My project/.git"
-   ```
+## Das Sandkastenprojekt
 
-   Die mitgelieferte `.gitignore` bleibt und hält `Library/`, `Temp/` und `Logs/` weiterhin draußen.
+`game/My project/` ist das von Unity Hub angelegte Testprojekt für die Brücke. Es steht in
+`.gitignore` (D-45) und wird von demselben Skript versorgt:
 
-2. **Ordnername.** `My project` enthält ein Leerzeichen. Umbenennen geht — Unity **vorher schließen**:
+```bash
+./game/install-bridge.sh "game/My project"
+```
 
-   ```bash
-   mv "game/My project" game/unity
-   ```
-
-   Danach im Unity Hub *Add project from disk* auf den neuen Pfad zeigen. Der Build-Pfad in
-   `CampusBuild.cs` ist relativ und bleibt gültig.
+Danach **Campus → Szene erzeugen** und Play. Nützlich, um eine Änderung an der Brücke zu prüfen, ohne
+den ganzen Campus zu laden.
