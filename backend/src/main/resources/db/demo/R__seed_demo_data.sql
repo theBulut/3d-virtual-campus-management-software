@@ -64,40 +64,104 @@ JOIN admin_user u ON u.username = m.username
 JOIN role r ON r.name = m.role_name
 ON CONFLICT DO NOTHING;
 
+-- The five demo buildings are real houses of the Stadtmitte campus, and every one of them stands as a
+-- finished model in the Unity scene of the FEC project — under the same code with the separator
+-- dropped: S1|03 there is S103 here (docs/DECISIONS.md D-46). Picking arbitrary codes would produce a
+-- demonstration in which nothing binds, and the reason would not be visible from either side.
+--
+-- Two codes had to move for that: S3|21 and L4|01 are on the Lichtwiese, which the scene does not
+-- cover. The rename runs before the insert so an existing dev volume moves with it instead of keeping
+-- an orphan; the guard prevents a collision if both codes are already present.
+UPDATE building SET code = 'S1|20'
+ WHERE code = 'S3|21' AND NOT EXISTS (SELECT 1 FROM building WHERE code = 'S1|20');
+UPDATE building SET code = 'S3|06'
+ WHERE code = 'L4|01' AND NOT EXISTS (SELECT 1 FROM building WHERE code = 'S3|06');
+
 INSERT INTO building (code, name_de, name_en, street, postal_code, city, latitude, longitude, model_ref, is_published)
 VALUES
     ('S1|03', 'Altes Hauptgebäude', 'Old Main Building', 'Hochschulstraße 1', '64289', 'Darmstadt', 49.8759, 8.6567, 'models/s1_03.glb', TRUE),
-    ('S2|02', 'Piloty-Gebäude', 'Piloty Building', 'Hochschulstraße 10', '64289', 'Darmstadt', 49.8776, 8.6540, 'models/s2_02.glb', TRUE),
-    ('S1|01', 'Karo 5', 'Karo 5', 'Karolinenplatz 5', '64289', 'Darmstadt', 49.8748, 8.6559, 'models/s1_01.glb', TRUE),
-    ('S3|21', 'Hörsaalgebäude', 'Lecture Hall Building', 'Franziska-Braun-Straße 7', '64287', 'Darmstadt', 49.8863, 8.6580, 'models/s3_21.glb', TRUE),
-    ('L4|01', 'Lichtwiese Mensa', 'Lichtwiese Canteen', 'Alarich-Weiss-Straße 1', '64287', 'Darmstadt', 49.8628, 8.6813, 'models/l4_01.glb', FALSE)
+    ('S2|02', 'Robert-Piloty-Gebäude', 'Robert Piloty Building', 'Hochschulstraße 10', '64289', 'Darmstadt', 49.8776, 8.6540, 'models/s2_02.glb', TRUE),
+    ('S1|01', 'Universitätszentrum (Karo 5)', 'University Centre (Karo 5)', 'Karolinenplatz 5', '64289', 'Darmstadt', 49.8748, 8.6559, 'models/s1_01.glb', TRUE),
+    ('S1|20', 'Universitäts- und Landesbibliothek', 'University and State Library', 'Magdalenenstraße 8', '64289', 'Darmstadt', 49.8767, 8.6552, 'models/s1_20.glb', TRUE),
+    ('S3|06', 'Hans-Busch-Institut (ETIT)', 'Hans Busch Institute (ETIT)', 'Merckstraße 25', '64283', 'Darmstadt', 49.8742, 8.6608, 'models/s3_06.glb', FALSE)
 ON CONFLICT (code) DO NOTHING;
 
+-- Names and addresses follow the ones the buildings carry in the FEC project
+-- (Assets/Resources/CSVFiles/Buildings_Overview.csv), so both sides describe the same house.
+UPDATE building SET name_de = 'Robert-Piloty-Gebäude', name_en = 'Robert Piloty Building'
+ WHERE code = 'S2|02' AND name_de = 'Piloty-Gebäude';
+UPDATE building SET name_de = 'Universitätszentrum (Karo 5)', name_en = 'University Centre (Karo 5)'
+ WHERE code = 'S1|01' AND name_de = 'Karo 5';
+UPDATE building SET name_de = 'Universitäts- und Landesbibliothek', name_en = 'University and State Library',
+                    street = 'Magdalenenstraße 8', latitude = 49.8767, longitude = 8.6552,
+                    model_ref = 'models/s1_20.glb'
+ WHERE code = 'S1|20' AND name_de = 'Hörsaalgebäude';
+UPDATE building SET name_de = 'Hans-Busch-Institut (ETIT)', name_en = 'Hans Busch Institute (ETIT)',
+                    street = 'Merckstraße 25', postal_code = '64283', latitude = 49.8742, longitude = 8.6608,
+                    model_ref = 'models/s3_06.glb'
+ WHERE code = 'S3|06' AND name_de = 'Lichtwiese Mensa';
+
+-- Three points that named a building which is no longer part of the demonstration, or that moved to
+-- one. Renamed before the list below is applied, because that list is keyed by name — without this an
+-- existing database would keep the old row and gain the new one next to it.
+UPDATE poi SET name_de = 'Hörsaal S1|03 23', name_en = 'Lecture Hall S1|03 23'
+ WHERE name_de = 'Hörsaal S3|21 001';
+UPDATE poi SET name_de = 'Lernzentrum ULB', name_en = 'ULB Learning Centre',
+               description_de = 'Ruhige Arbeitsplätze in der Bibliothek, rund um die Uhr geöffnet.',
+               description_en = 'Quiet workspaces in the library, open around the clock.'
+ WHERE name_de = 'Lernzentrum Lichtwiese';
+UPDATE poi SET name_de = 'Cafeteria Karo 5', name_en = 'Karo 5 Cafeteria'
+ WHERE name_de = 'Mensa Stadtmitte';
+
 -- Twelve POIs across all four states, so the review queue and the public interface both have content.
-INSERT INTO poi (name_de, name_en, description_de, description_en, category, building_id,
-                 position_x, position_y, position_z, status, review_note, published_at, published_by, created_by, assigned_to)
-SELECT d.name_de, d.name_en, d.description_de, d.description_en, d.category,
-       (SELECT id FROM building WHERE code = d.building_code),
-       d.x, d.y, d.z, d.status, d.review_note,
-       CASE WHEN d.status = 'PUBLISHED' THEN now() ELSE NULL END,
-       CASE WHEN d.status = 'PUBLISHED' THEN (SELECT id FROM admin_user WHERE username = 'demo_leitung') ELSE NULL END,
-       (SELECT id FROM admin_user WHERE username = d.created_by),
-       (SELECT id FROM admin_user WHERE username = d.assigned_to)
-FROM (VALUES
-    ('Audimax', 'Audimax', 'Größter Hörsaal der Universität mit 800 Plätzen.', 'The largest lecture hall with 800 seats.', 'LECTURE_HALL', 'S1|03', 12.5, 0.0, 34.2, 'PUBLISHED', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
-    ('Universitäts- und Landesbibliothek', 'University Library', 'Zentrale Bibliothek mit Lesesälen und Gruppenarbeitsräumen.', 'Central library with reading rooms.', 'LIBRARY', 'S1|01', 4.0, 0.0, 18.7, 'PUBLISHED', NULL, 'demo_mitarbeit', NULL),
-    ('Mensa Stadtmitte', 'City Centre Canteen', 'Mittagsverpflegung von 11:30 bis 14:30 Uhr.', 'Lunch from 11:30 to 14:30.', 'CAFETERIA', 'S1|03', -8.3, 0.0, 22.1, 'PUBLISHED', NULL, 'demo_mitarbeit', NULL),
-    ('Studierendensekretariat', 'Registrar Office', 'Anlaufstelle für Immatrikulation und Bescheinigungen.', 'Enrolment and certificates.', 'SERVICE', 'S1|01', 2.0, 3.0, 9.4, 'PUBLISHED', NULL, 'demo_leitung', NULL),
-    ('Rechnerpool Piloty', 'Piloty Computer Lab', 'Öffentlich zugänglicher Rechnerpool.', 'Publicly accessible computer lab.', 'LAB', 'S2|02', 15.2, 6.0, 41.0, 'PUBLISHED', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
-    ('Hörsaal S3|21 001', 'Lecture Hall S3|21 001', 'Hörsaal mit 250 Plätzen.', 'Lecture hall with 250 seats.', 'LECTURE_HALL', 'S3|21', 0.0, 0.0, 12.0, 'IN_REVIEW', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
-    ('Fachschaft Informatik', 'Computer Science Student Council', 'Beratung durch Studierende für Studierende.', 'Peer advice for students.', 'SERVICE', 'S2|02', 7.7, 3.0, 15.5, 'IN_REVIEW', NULL, 'demo_mitarbeit', NULL),
-    ('Cafeteria Piloty', 'Piloty Cafeteria', 'Kaffee und Snacks zwischen den Vorlesungen.', 'Coffee and snacks between lectures.', 'CAFETERIA', 'S2|02', -3.1, 0.0, 8.8, 'DRAFT', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
-    ('Lernzentrum Lichtwiese', 'Lichtwiese Learning Centre', 'Ruhige Arbeitsplätze, rund um die Uhr geöffnet.', 'Quiet workspaces, open around the clock.', 'LIBRARY', 'L4|01', 20.0, 0.0, 5.0, 'DRAFT', NULL, 'demo_mitarbeit', NULL),
-    ('Fahrradwerkstatt', 'Bicycle Workshop', 'Selbsthilfewerkstatt des AStA.', 'Self-service workshop run by the student union.', 'OTHER', 'S1|03', -14.0, 0.0, 3.2, 'DRAFT', 'Bitte Öffnungszeiten und Kontakt ergänzen.', 'demo_mitarbeit', 'demo_mitarbeit'),
-    ('Sprachenzentrum', 'Language Centre', 'Kursangebot in zwölf Sprachen.', 'Courses in twelve languages.', 'SERVICE', 'S1|01', 9.0, 6.0, 27.3, 'ARCHIVED', NULL, 'demo_leitung', NULL),
-    ('Alter Serverraum', 'Former Server Room', 'Nicht mehr in Betrieb, Eintrag archiviert.', 'No longer in operation.', 'OTHER', 'S2|02', 30.0, -3.0, 50.0, 'ARCHIVED', NULL, 'demo_leitung', NULL)
-) AS d(name_de, name_en, description_de, description_en, category, building_code, x, y, z, status, review_note, created_by, assigned_to)
-WHERE NOT EXISTS (SELECT 1 FROM poi WHERE poi.name_de = d.name_de);
+--
+-- position_x/y/z is an offset in metres from the anchor above the roof of the building, not a world
+-- coordinate: the marker finds its house through building_id, and these three numbers only spread the
+-- markers of one house apart (docs/DECISIONS.md D-47). Hence the small values — at x = 30 a point would
+-- float over the neighbouring roof. Without a building the same numbers are read as world coordinates,
+-- which is what the sandbox scene does.
+--
+-- Written as one CTE so the values exist once and serve both cases: a fresh database gets the rows
+-- inserted, an existing one gets its points moved to the current building and offset. A repeatable
+-- migration re-runs whenever this file changes, and a demonstration database still holding yesterday's
+-- coordinates would be the harder mistake to notice. Status and review note are deliberately left
+-- alone — what was published during a demonstration stays published.
+WITH demo(name_de, name_en, description_de, description_en, category, building_code,
+          x, y, z, status, review_note, created_by, assigned_to) AS (VALUES
+    ('Audimax', 'Audimax', 'Größter Hörsaal der Universität mit 800 Plätzen.', 'The largest lecture hall with 800 seats.', 'LECTURE_HALL', 'S1|01', 0.0, 0.0, 0.0, 'PUBLISHED', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
+    ('Universitäts- und Landesbibliothek', 'University Library', 'Zentrale Bibliothek mit Lesesälen und Gruppenarbeitsräumen.', 'Central library with reading rooms.', 'LIBRARY', 'S1|20', 0.0, 0.0, 0.0, 'PUBLISHED', NULL, 'demo_mitarbeit', NULL),
+    ('Cafeteria Karo 5', 'Karo 5 Cafeteria', 'Mittagsverpflegung von 11:30 bis 14:30 Uhr.', 'Lunch from 11:30 to 14:30.', 'CAFETERIA', 'S1|01', -7.0, 0.0, 5.0, 'PUBLISHED', NULL, 'demo_mitarbeit', NULL),
+    ('Studierendensekretariat', 'Registrar Office', 'Anlaufstelle für Immatrikulation und Bescheinigungen.', 'Enrolment and certificates.', 'SERVICE', 'S1|03', 6.0, 0.0, -4.0, 'PUBLISHED', NULL, 'demo_leitung', NULL),
+    ('Rechnerpool Piloty', 'Piloty Computer Lab', 'Öffentlich zugänglicher Rechnerpool.', 'Publicly accessible computer lab.', 'LAB', 'S2|02', 0.0, 0.0, 0.0, 'PUBLISHED', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
+    ('Hörsaal S1|03 23', 'Lecture Hall S1|03 23', 'Hörsaal mit 250 Plätzen.', 'Lecture hall with 250 seats.', 'LECTURE_HALL', 'S1|03', -6.0, 2.0, 6.0, 'IN_REVIEW', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
+    ('Fachschaft Informatik', 'Computer Science Student Council', 'Beratung durch Studierende für Studierende.', 'Peer advice for students.', 'SERVICE', 'S2|02', 7.0, 2.0, 4.0, 'IN_REVIEW', NULL, 'demo_mitarbeit', NULL),
+    ('Cafeteria Piloty', 'Piloty Cafeteria', 'Kaffee und Snacks zwischen den Vorlesungen.', 'Coffee and snacks between lectures.', 'CAFETERIA', 'S2|02', -5.0, 0.0, -6.0, 'DRAFT', NULL, 'demo_mitarbeit', 'demo_mitarbeit'),
+    ('Lernzentrum ULB', 'ULB Learning Centre', 'Ruhige Arbeitsplätze in der Bibliothek, rund um die Uhr geöffnet.', 'Quiet workspaces in the library, open around the clock.', 'LIBRARY', 'S1|20', 5.0, 2.0, 5.0, 'DRAFT', NULL, 'demo_mitarbeit', NULL),
+    ('Fahrradwerkstatt', 'Bicycle Workshop', 'Selbsthilfewerkstatt des AStA.', 'Self-service workshop run by the student union.', 'OTHER', 'S1|03', 0.0, 4.0, 8.0, 'DRAFT', 'Bitte Öffnungszeiten und Kontakt ergänzen.', 'demo_mitarbeit', 'demo_mitarbeit'),
+    ('Sprachenzentrum', 'Language Centre', 'Kursangebot in zwölf Sprachen.', 'Courses in twelve languages.', 'SERVICE', 'S1|03', 8.0, 4.0, 0.0, 'ARCHIVED', NULL, 'demo_leitung', NULL),
+    ('Alter Serverraum', 'Former Server Room', 'Nicht mehr in Betrieb, Eintrag archiviert.', 'No longer in operation.', 'OTHER', 'S2|02', 0.0, 4.0, -8.0, 'ARCHIVED', NULL, 'demo_leitung', NULL)
+),
+inserted AS (
+    INSERT INTO poi (name_de, name_en, description_de, description_en, category, building_id,
+                     position_x, position_y, position_z, status, review_note, published_at, published_by, created_by, assigned_to)
+    SELECT d.name_de, d.name_en, d.description_de, d.description_en, d.category,
+           (SELECT id FROM building WHERE code = d.building_code),
+           d.x, d.y, d.z, d.status, d.review_note,
+           CASE WHEN d.status = 'PUBLISHED' THEN now() ELSE NULL END,
+           CASE WHEN d.status = 'PUBLISHED' THEN (SELECT id FROM admin_user WHERE username = 'demo_leitung') ELSE NULL END,
+           (SELECT id FROM admin_user WHERE username = d.created_by),
+           (SELECT id FROM admin_user WHERE username = d.assigned_to)
+    FROM demo d
+    WHERE NOT EXISTS (SELECT 1 FROM poi WHERE poi.name_de = d.name_de)
+    RETURNING 1
+)
+UPDATE poi p
+   SET building_id = (SELECT id FROM building WHERE code = d.building_code),
+       position_x = d.x,
+       position_y = d.y,
+       position_z = d.z
+  FROM demo d
+ WHERE p.name_de = d.name_de;
 
 INSERT INTO consultation (title_de, title_en, description_de, description_en, organisation, building_id,
                           room, contact_email, responsible_user_id, is_published, created_by)
@@ -140,9 +204,11 @@ FROM admin_user u
 WHERE u.username = 'demo_studi'
 ON CONFLICT (user_id) DO NOTHING;
 
--- Scene coordinates for the demo buildings: without them everything would stand on the origin.
+-- Scene coordinates for the demo buildings. In the FEC campus they are not used: there the building is
+-- found by its code and stands where its model stands (D-46). They matter for the sandbox scene, which
+-- has no buildings of its own — without them everything would pile up on the origin.
 UPDATE building SET position_x = 0,   position_z = 0,   rotation_y = 0   WHERE code = 'S1|03';
 UPDATE building SET position_x = 60,  position_z = 20,  rotation_y = 90  WHERE code = 'S2|02';
 UPDATE building SET position_x = -40, position_z = 15,  rotation_y = 0   WHERE code = 'S1|01';
-UPDATE building SET position_x = 25,  position_z = 90,  rotation_y = 180 WHERE code = 'S3|21';
-UPDATE building SET position_x = 120, position_z = 140, rotation_y = 45  WHERE code = 'L4|01';
+UPDATE building SET position_x = 25,  position_z = 90,  rotation_y = 180 WHERE code = 'S1|20';
+UPDATE building SET position_x = 120, position_z = 140, rotation_y = 45  WHERE code = 'S3|06';
