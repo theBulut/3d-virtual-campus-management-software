@@ -126,7 +126,32 @@ für ein hartnäckiges 401. Im Zweifel leeren.
 Die Anmeldedaten stehen hinter `#if UNITY_EDITOR` und landen nie in einem Build.
 
 Steuerung im FEC-Campus: die des Projekts (WASD, Maus). Klick oder `E` auf einen Marker öffnet sein
-Infofeld, `Esc` schließt es.
+Infofeld, `Esc` schließt es, **`Pos1`** (`Home`) setzt den Spieler an den Startpunkt zurück.
+
+## Wenn man aus der Welt fällt
+
+Der Spielstand speichert die Position, und `SceneLoader` teleportiert beim Laden dorthin. Ein
+einziger Sturz aus der Welt bleibt damit erhalten: Jeder spätere Start landet wieder im Nichts, und
+der Autosave schreibt die Fallposition alle 30 Sekunden nach. Dagegen stehen drei Sicherungen in
+`GameStateClient`:
+
+| Wann | Was passiert |
+|---|---|
+| **Beim Laden** | Eine gespeicherte Position außerhalb von `minValidY … maxValidY` oder mit `NaN` wird verworfen; der Spieler startet am Spawn-Punkt. |
+| **Während des Spiels** | Fällt der Spieler unter `minValidY` (Standard −50 m), wird er automatisch zurückgesetzt und der Stand sofort gespeichert. |
+| **Beim Speichern** | Eine Position außerhalb der Welt wird gar nicht erst geschrieben; der letzte gültige Wert bleibt stehen. |
+
+Alle drei Grenzen stehen als Felder auf dem Objekt `GameState`. `Absturzsicherung aktiv` lässt sich
+abschalten, wenn man den Fehler absichtlich nachstellen will.
+
+Ist ein Spielstand bereits kaputt und man kommt nicht ins Spiel, hilft von außen:
+
+```bash
+./game/reset-position.sh demo_leitung
+```
+
+Das Skript entfernt den `position`-Schlüssel aus dem gespeicherten Stand. **Das Spiel muss dabei
+geschlossen sein**, sonst überschreibt der Autosave die Korrektur.
 
 ## WebGL-Build
 
