@@ -34,6 +34,11 @@ namespace Campus
 
         private void Update()
         {
+            if (ResetPressed())
+            {
+                ResetToSpawn();
+                return;
+            }
             if (EscapePressed())
             {
                 Close();
@@ -130,6 +135,38 @@ namespace Campus
 #else
             return Input.GetKeyDown(KeyCode.Escape);
 #endif
+        }
+
+        /// <summary>
+        /// <c>Pos1</c> — <c>Home</c> on an English layout. Chosen over the obvious <c>R</c> because the
+        /// hosting project may bind that, and because a key nobody presses by accident matters here: an
+        /// unintended reset during a study task would destroy the measurement for that task.
+        /// </summary>
+        private static bool ResetPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.homeKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.Home);
+#endif
+        }
+
+        /// <summary>
+        /// Hands the request to <see cref="GameStateClient"/>, which owns the player and the spawn point.
+        /// Looked up per press rather than cached: the object is created by the scene injector and may
+        /// appear after this component.
+        /// </summary>
+        private void ResetToSpawn()
+        {
+            var state = FindAnyObjectByType<GameStateClient>();
+            if (state == null)
+            {
+                Debug.LogWarning("Kein GameState in der Szene — Zurücksetzen nicht möglich.");
+                return;
+            }
+            Open(state.ResetToSpawn()
+                ? "Zurück am Startpunkt."
+                : "Kein Startpunkt bekannt — diese Szene hat keinen Spieler.");
         }
     }
 }

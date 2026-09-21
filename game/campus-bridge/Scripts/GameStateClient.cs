@@ -40,14 +40,41 @@ namespace Campus
         [Tooltip("Ab welcher Entfernung ein Gebäude als besucht gilt (Meter, waagerecht).")]
         [SerializeField] private float visitRadius = 40f;
 
+        [Header("Absturzsicherung")]
+        [Tooltip("Unterhalb dieser Höhe gilt der Spieler als aus der Welt gefallen und wird an den "
+                 + "Startpunkt zurückgesetzt.")]
+        [SerializeField] private float minValidY = -50f;
+
+        [Tooltip("Oberhalb dieser Höhe gilt eine gespeicherte Position als unbrauchbar und wird beim "
+                 + "Laden verworfen.")]
+        [SerializeField] private float maxValidY = 1000f;
+
+        [Tooltip("Aus: der Spieler fällt weiter, statt zurückgesetzt zu werden. Nur zum Nachstellen "
+                 + "eines Fehlers sinnvoll.")]
+        [SerializeField] private bool catchFalling = true;
+
         public GameStateData State { get; private set; } = new();
 
         /// <summary>Nothing is written before the first load answered; otherwise it would overwrite.</summary>
         private bool loaded;
 
+        /// <summary>
+        /// Where the scene put the player, read before the stored position is applied. The hosting
+        /// project owns the spawn point and does not expose it, so the only reliable way to learn it is
+        /// to look at the player before anything has moved them.
+        /// </summary>
+        private Vector3 spawnPosition;
+        private bool spawnKnown;
+
+        /// <summary>Seconds the fall watchdog waits before it may fire again.</summary>
+        private const float RescueCooldownSeconds = 2f;
+
+        private float nextRescueAllowed;
+
         private IEnumerator Start()
         {
             ResolvePlayer();
+            RememberSpawn();
 
             yield return Load();
             loaded = true;
@@ -83,6 +110,100 @@ namespace Campus
             }
         }
 
+        /// <summary>
+        /// Takes the spawn point from the untouched player. Must run before <see cref="Load"/>, or the
+        /// remembered point would be the stored position — and resetting to it would put the player back
+        /// into whatever hole they are trying to escape.
+        /// </summary>
+        private void RememberSpawn()
+        {
+            if (player == null)
+            {
+                return;
+            }
+            spawnPosition = player.position;
+            spawnKnown = true;
+        }
+
+        /// <summary>
+        /// A position worth applying. Rejects the two shapes that break a session: values that are not
+        /// finite, which a damaged payload can carry and which poison every later calculation, and
+        /// heights far outside the world, which are what a fall leaves behind.
+        /// </summary>
+        private bool IsUsable(Vector3 position) =>
+            float.IsFinite(position.x) && float.IsFinite(position.y) && float.IsFinite(position.z)
+            && position.y >= minValidY && position.y <= maxValidY;
+
+        /// <summary>
+        /// Puts the player back where the scene started them. Returns false when there is no player or no
+        /// known spawn — the sandbox scene, for instance — so the caller can say so instead of pretending
+        /// the key did something.
+        /// </summary>
+        public bool ResetToSpawn()
+        {
+            if (player == null || !spawnKnown)
+            {
+                Debug.LogWarning("Kein Startpunkt bekannt — es gibt keinen Spieler in dieser Szene.");
+                return false;
+            }
+
+            Teleport(spawnPosition);
+            // The position is the one thing the stored state must not keep from a failed run. Writing it
+            // straight away means a reload cannot drop the player back into the void, even if the tab is
+            // closed before the next autosave.
+            State.position = new Vector3Data
+            {
+                x = spawnPosition.x,
+                y = spawnPosition.y,
+                z = spawnPosition.z,
+            };
+            SaveNow();
+
+            Debug.Log($"Zurück am Startpunkt {spawnPosition}.");
+            return true;
+        }
+
+        /// <summary>
+        /// Catches the fall that no stored position can predict. The player walks off an edge, keeps
+        /// falling and never lands; nothing in the hosting project stops them, and the autosave would
+        /// write that position every 30 seconds.
+        /// </summary>
+        private void Update()
+        {
+            if (!catchFalling || player == null || !spawnKnown)
+            {
+                return;
+            }
+            if (player.position.y >= minValidY || Time.time < nextRescueAllowed)
+            {
+                return;
+            }
+
+            // A spawn point below the threshold cannot cure the condition, so the rescue would fire
+            // again on the very next frame — and each one writes to the API. Refuse once and stop
+            // watching rather than flooding the network with a misconfiguration.
+            if (spawnPosition.y < minValidY)
+            {
+                Debug.LogError($"Der Startpunkt liegt selbst unter {minValidY} m. Absturzsicherung "
+                               + "abgeschaltet — bitte 'Min Valid Y' anpassen.");
+                catchFalling = false;
+                return;
+            }
+
+            // The player needs a moment to land before the next check; without this a bounce off the
+            // spawn collider could trigger a second rescue.
+            nextRescueAllowed = Time.time + RescueCooldownSeconds;
+            Debug.LogWarning($"Spieler unter {minValidY} m — aus der Welt gefallen, "
+                             + "zurück an den Startpunkt.");
+            ResetToSpawn();
+            // Not the ?. operator: Unity overrides == for destroyed objects, and ?. bypasses that
+            // override, so a destroyed canvas would be treated as alive.
+            if (CampusUi.Instance != null)
+            {
+                CampusUi.Instance.Show("Du bist aus der Welt gefallen und stehst wieder am Start.");
+            }
+        }
+
         public IEnumerator Load()
         {
             var bridge = WebBridge.Instance;
@@ -109,7 +230,19 @@ namespace Campus
                     ?? new GameStateData();
             if (player != null && State.position != null)
             {
-                Teleport(State.position.ToVector3());
+                var stored = State.position.ToVector3();
+                if (IsUsable(stored))
+                {
+                    Teleport(stored);
+                }
+                else
+                {
+                    // Dropping the stored position rather than applying it: a session that ended in a
+                    // fall must not hand that fall to the next one. The rest of the state survives.
+                    Debug.LogWarning($"Gespeicherte Position {stored} liegt außerhalb der Welt und "
+                                     + "wird verworfen — Start am Spawn-Punkt.");
+                    State.position = null;
+                }
             }
             Debug.Log($"Spielstand geladen: {State.minutesPlayed} Minuten gespielt, zuletzt "
                       + $"{State.savedAt}");
@@ -131,6 +264,18 @@ namespace Campus
 
             player.position = position;
 
+            // Without this the fall continues at the spawn point: a rigidbody keeps the speed it picked
+            // up on the way down, and the player drops through the ground a second time.
+            if (player.TryGetComponent<Rigidbody>(out var body) && !body.isKinematic)
+            {
+#if UNITY_6000_0_OR_NEWER
+                body.linearVelocity = Vector3.zero;
+#else
+                body.velocity = Vector3.zero;
+#endif
+                body.angularVelocity = Vector3.zero;
+            }
+
             if (wasEnabled)
             {
                 controller.enabled = true;
@@ -150,12 +295,22 @@ namespace Campus
         {
             if (player != null)
             {
-                State.position = new Vector3Data
+                // A position from mid-fall is worse than no position: it survives the session and drops
+                // the next one straight back into the void. The previous good value is kept instead.
+                if (IsUsable(player.position))
                 {
-                    x = player.position.x,
-                    y = player.position.y,
-                    z = player.position.z,
-                };
+                    State.position = new Vector3Data
+                    {
+                        x = player.position.x,
+                        y = player.position.y,
+                        z = player.position.z,
+                    };
+                }
+                else
+                {
+                    Debug.LogWarning($"Position {player.position} wird nicht gespeichert — "
+                                     + "außerhalb der Welt.");
+                }
                 State.visitedBuildings = VisitedBuildings();
             }
             State.minutesPlayed = Mathf.RoundToInt(Time.realtimeSinceStartup / 60f);
