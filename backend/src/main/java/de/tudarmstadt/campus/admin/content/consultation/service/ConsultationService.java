@@ -120,10 +120,16 @@ public class ConsultationService {
         return toResponse(saved);
     }
 
-    @Audited(action = "CONSULTATION_UPDATED", resourceType = "CONSULTATION", resourceId = "#eventId")
+    /**
+     * The audit entry is filed against the offer, not against the slot: both ids share the
+     * {@code resource_id} column, so a slot id under resource type {@code CONSULTATION} would point a
+     * reader at an unrelated offer. Set before the time check so a rejected change is filed correctly too.
+     */
+    @Audited(action = "CONSULTATION_UPDATED", resourceType = "CONSULTATION")
     @Transactional
     public ConsultationEventResponse updateEvent(long eventId, ConsultationEventRequest request) {
         ConsultationEvent event = loadEvent(eventId);
+        AuditContext.resourceId(event.getConsultation().getId());
         assertTimeOrder(request);
 
         AuditContext.before("slot", event.getStartTime() + "–" + event.getEndTime());
@@ -137,10 +143,12 @@ public class ConsultationService {
         return toResponse(saved);
     }
 
-    @Audited(action = "CONSULTATION_UPDATED", resourceType = "CONSULTATION", resourceId = "#eventId")
+    /** Filed against the offer for the same reason as {@link #updateEvent}. */
+    @Audited(action = "CONSULTATION_UPDATED", resourceType = "CONSULTATION")
     @Transactional
     public void deleteEvent(long eventId) {
         ConsultationEvent event = loadEvent(eventId);
+        AuditContext.resourceId(event.getConsultation().getId());
         AuditContext.before("removedSlot", event.getStartTime() + "–" + event.getEndTime());
         events.delete(event);
     }

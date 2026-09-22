@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -207,6 +208,46 @@ class AuditTrailIT extends AbstractIntegrationTest {
         }
     }
 
+    /**
+     * A slot is logged against its offer, never against itself. Offer ids and slot ids share the
+     * {@code resource_id} column, so an entry of type {@code CONSULTATION} carrying a slot id would send
+     * a reader to an unrelated offer — and on the seeded data it reads plausibly, which is what makes it
+     * dangerous. Covers changing and removing; adding was already filed against the offer.
+     */
+    @Test
+    void aChangedSlotIsLoggedAgainstItsConsultationOffer() throws Exception {
+        AdminUser staff = account("audit_personal_slot", RoleCode.PERSONAL);
+        String token = accessTokenFor(staff.getUsername());
+
+        long offerId = createConsultation(token);
+        // Two slots so that at least one id differs from the offer's: on an empty database both sequences
+        // start at 1, and with a single slot the assertions below could hold by coincidence.
+        long firstSlot = addSlot(token, offerId, "09:00:00", "10:00:00");
+        long secondSlot = addSlot(token, offerId, "11:00:00", "12:00:00");
+        long slotId = firstSlot == offerId ? secondSlot : firstSlot;
+
+        mockMvc.perform(put("/api/consultations/events/" + slotId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"dayOfWeek":2,"startTime":"09:00:00","endTime":"13:00:00"}"""))
+                .andExpect(status().isOk());
+
+        assertThat(consultationEntries(slotId))
+                .as("nothing may be filed under the slot id %d", slotId)
+                .isEmpty();
+        assertThat(consultationEntries(offerId))
+                .anySatisfy(entry -> assertThat(entry.getAfterState()).contains("13:00"));
+
+        mockMvc.perform(delete("/api/consultations/events/" + slotId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        assertThat(consultationEntries(slotId)).isEmpty();
+        assertThat(consultationEntries(offerId))
+                .anySatisfy(entry -> assertThat(entry.getBeforeState()).contains("removedSlot"));
+    }
+
     /** Masking is recursive: a blocked field is hidden wherever it sits in the structure. */
     @Test
     void maskingReachesNestedFields() {
@@ -234,6 +275,34 @@ class AuditTrailIT extends AbstractIntegrationTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(
                         "no audit entry " + action + " for " + resourceId));
+    }
+
+    private long createConsultation(String token) throws Exception {
+        String body = mockMvc.perform(post("/api/consultations")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"titleDe":"Beratung Nachweis","organisation":"Fachgebiet Nachweis"}"""))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.id")).longValue();
+    }
+
+    private long addSlot(String token, long offerId, String start, String end) throws Exception {
+        String body = mockMvc.perform(post("/api/consultations/" + offerId + "/events")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dayOfWeek\":2,\"startTime\":\"" + start
+                                + "\",\"endTime\":\"" + end + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.id")).longValue();
+    }
+
+    private List<AuditLog> consultationEntries(long resourceId) {
+        entityManager.clear();
+        return auditLogs.findByResourceTypeAndResourceIdOrderByCreatedAtDesc(
+                "CONSULTATION", String.valueOf(resourceId));
     }
 
     private AuditLog latestAuthEntry(String action, String username) {
