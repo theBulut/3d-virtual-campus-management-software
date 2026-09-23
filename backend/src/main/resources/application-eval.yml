@@ -1,0 +1,15 @@
+# Study data on top of another profile: SPRING_PROFILES_ACTIVE=docker,eval.
+#
+# Like the demo profile, its only job is to add a Flyway location. Database, Redis and secret stay with
+# the profile it is combined with. Without this profile the location is not on the list, so the study
+# seed never runs — the accounts it creates cannot reach a development or production database.
+#
+# Deliberately not combined with `demo`: the study measures how quickly participants find one specific
+# record, and the demo content would add unrelated rows to every list they search.
+#
+# The seed is the *initial* state of a fresh database. Resetting between sessions is a separate,
+# deterministic step (scripts/eval/eval-reset.sh), because a repeatable migration full of
+# ON CONFLICT DO NOTHING cannot undo what a participant changed.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/eval

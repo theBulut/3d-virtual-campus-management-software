@@ -1,0 +1,60 @@
+# Isolated stack for the usability study. Never touches the development environment.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.eval.yml up -d --build
+#
+# Three things keep the two apart:
+#
+#   name: campus-eval   — its own Compose project, so containers, network and volumes are separate. The
+#                         field is set here rather than left to `-p`, because forgetting the flag would
+#                         otherwise recreate the development containers with these settings.
+#   ports               — 3100/8090/5442/6389 instead of 3000/8080/5432/6379. A different project name
+#                         alone does not resolve a host port collision; both stacks can now run at once.
+#                         Every ports list carries `!override`: Compose *appends* sequences when merging
+#                         files, so without it each service would publish the base port as well and the
+#                         second stack would fail with "port is already allocated".
+#   SPRING_PROFILES_ACTIVE: docker,eval — adds classpath:db/eval to the Flyway locations, nothing else.
+#
+# The demo profile is deliberately absent: the study uses its own accounts and content, and the demo
+# data would put unrelated records in every list the participants search through.
+name: campus-eval
+
+services:
+
+  frontend:
+    ports: !override
+      - "3100:3000"
+
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,eval
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/campus_eval
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATA_REDIS_HOST: redis
+    ports: !override
+      - "8090:8080"
+
+  db:
+    environment:
+      POSTGRES_DB: campus_eval
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - eval-db-data:/var/lib/postgresql/data
+    ports: !override
+      - "5442:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d campus_eval"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    ports: !override
+      - "6389:6379"
+
+volumes:
+  # Named differently from the base file on purpose. The project prefix already separates them, but an
+  # explicit name makes it visible in `docker volume ls` which volume belongs to the study.
+  eval-db-data:

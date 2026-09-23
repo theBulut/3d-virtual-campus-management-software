@@ -1,0 +1,666 @@
+#!/usr/bin/env python3
+"""Snapshots and per-participant success figures for the usability study.
+
+    eval-run start --participant Q7M4
+    eval-run checkpoint --task T1
+    eval-run report --participant Q7M4 --observations beobachtung.csv
+
+`start` records the verified starting state, `checkpoint` the state at the moment a task ends, and
+`report` compares both against the target state and merges the written observation.
+
+Why a snapshot per task and not one comparison at the end: a later correction, a demonstration of the
+solution, or the T8 reset would overwrite what the participant actually achieved. A missing snapshot is
+never silently replaced by a later state — the report marks the evidence as missing and asks for a
+manual decision.
+
+Nothing here writes to the application. Reads run in one REPEATABLE READ transaction so a snapshot is
+internally consistent, and only the fields the criteria need leave the database: no password hashes, no
+token values, no game states, no media.
+
+Research data lands outside the repository, under eval/erhebungsdaten/<code>/.
+"""
+
+import argparse
+import csv
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PROJECT = "campus-eval"
+DB = "campus_eval"
+DB_USER = "postgres"
+DATA_DIR = Path(os.environ.get(
+    "EVAL_DATA_DIR", "/Users/mehmetbulut/Studium/Bachelorthesis/eval/erhebungsdaten"))
+
+TASKS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T9", "T8"]
+HELP_LEVELS = ["H0", "H1", "H2", "H3", "H4"]
+
+# Version of the criteria below. Written into every report, so a result can always be traced back to the
+# rules that produced it. Raise it whenever a criterion changes — never to make results look better.
+CRITERIA_VERSION = "1.0.0"
+
+
+# ---------------------------------------------------------------------------------------------------
+# Database access
+# ---------------------------------------------------------------------------------------------------
+
+def die(message):
+    print(f"Abbruch: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def db_container():
+    """The db container of the study project — and only of that project."""
+    out = subprocess.run(
+        ["docker", "compose", "-f", str(REPO_ROOT / "docker-compose.yml"),
+         "-f", str(REPO_ROOT / "docker-compose.eval.yml"), "ps", "-q", "db"],
+        capture_output=True, text=True)
+    container = out.stdout.strip().splitlines()
+    if not container:
+        die(f"Kein Datenbank-Container im Projekt '{PROJECT}'. Zuerst ./scripts/eval/eval-up.sh")
+    label = subprocess.run(
+        ["docker", "inspect", "--format",
+         '{{ index .Config.Labels "com.docker.compose.project" }}', container[0]],
+        capture_output=True, text=True).stdout.strip()
+    if label != PROJECT:
+        die(f"Container gehört zum Projekt '{label}', erwartet '{PROJECT}'.")
+    return container[0]
+
+
+def query(container, sql):
+    """One read-only query, returned as a list of dicts."""
+    wrapped = (
+        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; "
+        f"SELECT coalesce(json_agg(row_to_json(q)), '[]'::json) FROM ({sql}) q; COMMIT;"
+    )
+    out = subprocess.run(
+        ["docker", "exec", "-i", container, "psql", "-v", "ON_ERROR_STOP=1", "-U", DB_USER,
+         "-d", DB, "-t", "-A", "-c", wrapped],
+        capture_output=True, text=True)
+    if out.returncode != 0:
+        die(f"Datenbankabfrage fehlgeschlagen: {out.stderr.strip()}")
+    payload = [line for line in out.stdout.splitlines() if line.startswith(("[", "{"))]
+    if not payload:
+        die(f"Unerwartete Antwort der Datenbank: {out.stdout.strip()[:200]}")
+    return json.loads(payload[0])
+
+
+def snapshot(container):
+    """The study objects, and only the fields the criteria look at."""
+    return {
+        "taken_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "accounts": query(container, """
+            SELECT u.username, u.email, u.first_name, u.last_name, u.organisation,
+                   u.is_active, u.must_change_password,
+                   coalesce((SELECT array_agg(r.name ORDER BY r.name)
+                             FROM user_role ur JOIN role r ON r.id = ur.role_id
+                             WHERE ur.user_id = u.id), '{}') AS roles
+            FROM admin_user u ORDER BY u.username"""),
+        "buildings": query(container, """
+            SELECT code, name_de, name_en, street, postal_code, city,
+                   latitude, longitude, model_ref, is_published
+            FROM building ORDER BY code"""),
+        "pois": query(container, """
+            SELECT p.name_de, p.name_en, p.description_de, p.description_en, p.category,
+                   b.code AS building_code, p.position_x, p.position_y, p.position_z,
+                   p.status, p.review_note,
+                   o.username AS owner, a.username AS assigned_to
+            FROM poi p
+            LEFT JOIN building b ON b.id = p.building_id
+            LEFT JOIN admin_user o ON o.id = p.created_by
+            LEFT JOIN admin_user a ON a.id = p.assigned_to
+            ORDER BY p.name_de"""),
+        "consultations": query(container, """
+            SELECT c.title_de, c.title_en, c.organisation, c.room, c.contact_email, c.is_published,
+                   b.code AS building_code, r.username AS responsible,
+                   coalesce((SELECT json_agg(json_build_object(
+                                 'day_of_week', e.day_of_week,
+                                 'start_time', to_char(e.start_time, 'HH24:MI'),
+                                 'end_time', to_char(e.end_time, 'HH24:MI'),
+                                 'valid_from', e.valid_from, 'valid_to', e.valid_to,
+                                 'note', e.note)
+                             ORDER BY e.day_of_week, e.start_time)
+                             FROM consultation_event e WHERE e.consultation_id = c.id),
+                            '[]'::json) AS events
+            FROM consultation c
+            LEFT JOIN building b ON b.id = c.building_id
+            LEFT JOIN admin_user r ON r.id = c.responsible_user_id
+            ORDER BY c.title_de"""),
+        "audit": query(container, """
+            SELECT id, action, resource_type, resource_id, actor_username, success, error_code,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+            FROM audit_log ORDER BY created_at DESC, id DESC LIMIT 50"""),
+    }
+
+
+# ---------------------------------------------------------------------------------------------------
+# Target state. Resolved by business key, never by database id: ids shift with every reset.
+# ---------------------------------------------------------------------------------------------------
+
+def find(rows, key, value):
+    for row in rows:
+        if row.get(key) == value:
+            return row
+    return None
+
+
+def check(label, ok, expected, observed):
+    """ok is True, False, or None for "a person has to decide this".
+
+    None must survive: coercing it to False would silently turn every criterion that needs human
+    judgement into a failure.
+    """
+    return {"kriterium": label, "erfuellt": None if ok is None else bool(ok),
+            "erwartet": expected, "beobachtet": observed}
+
+
+def unchanged(label, before, after, fields, key, value):
+    """Every listed field of one record has to survive the task untouched."""
+    a = find(before, key, value) or {}
+    b = find(after, key, value) or {}
+    differing = [f for f in fields if a.get(f) != b.get(f)]
+    return check(label, not differing, "unverändert",
+                 "unverändert" if not differing
+                 else ", ".join(f"{f}: {a.get(f)!r} → {b.get(f)!r}" for f in differing))
+
+
+def t1(base, end, _meta):
+    new = [a for a in end["accounts"]
+           if a["username"] not in {x["username"] for x in base["accounts"]}]
+    account = find(end["accounts"], "username", "eval_neuzugang")
+    return [
+        check("Genau ein neues Konto", len(new) == 1, "1",
+              f"{len(new)}: {', '.join(a['username'] for a in new) or 'keines'}"),
+        check("Benutzername eval_neuzugang", account is not None,
+              "eval_neuzugang", "vorhanden" if account else "fehlt"),
+        check("Stammdaten laut Datenkarte",
+              bool(account) and account["email"] == "eval_neuzugang@example.org"
+              and account["first_name"] == "Test" and account["last_name"] == "Neuzugang",
+              "eval_neuzugang@example.org / Test / Neuzugang",
+              f"{account['email']} / {account['first_name']} / {account['last_name']}"
+              if account else "—"),
+        check("Genau die Rolle PROJEKTMITARBEITER",
+              bool(account) and sorted(account["roles"]) == ["PROJEKTMITARBEITER"],
+              "['PROJEKTMITARBEITER']", str(sorted(account["roles"])) if account else "—"),
+    ]
+
+
+def t2(base, end, _meta):
+    account = find(end["accounts"], "username", "eval_wechsel")
+    return [
+        check("Konto vorhanden", account is not None, "eval_wechsel",
+              "vorhanden" if account else "fehlt"),
+        check("Konto aktiv", bool(account) and account["is_active"], "aktiv",
+              ("aktiv" if account["is_active"] else "inaktiv") if account else "—"),
+        check("Genau die Rolle PERSONAL",
+              bool(account) and sorted(account["roles"]) == ["PERSONAL"],
+              "['PERSONAL']", str(sorted(account["roles"])) if account else "—"),
+    ]
+
+
+def t3(base, end, _meta):
+    poi = find(end["pois"], "name_de", "Infopunkt Evaluation")
+    return [
+        check("Campus-Punkt angelegt", poi is not None, "Infopunkt Evaluation",
+              "vorhanden" if poi else "fehlt"),
+        check("Sachangaben laut Datenkarte",
+              bool(poi) and poi["name_en"] == "Evaluation information point"
+              and poi["category"] == "SERVICE" and poi["building_code"] == "EVAL|01"
+              and (poi["position_x"], poi["position_y"], poi["position_z"]) == (0, 0, 0),
+              "Evaluation information point / SERVICE / EVAL|01 / 0,0,0",
+              f"{poi['name_en']} / {poi['category']} / {poi['building_code']} / "
+              f"{poi['position_x']},{poi['position_y']},{poi['position_z']}" if poi else "—"),
+        check("Eigentum eval_mitarbeit", bool(poi) and poi["owner"] == "eval_mitarbeit",
+              "eval_mitarbeit", poi["owner"] if poi else "—"),
+        check("Status IN_REVIEW", bool(poi) and poi["status"] == "IN_REVIEW",
+              "IN_REVIEW", poi["status"] if poi else "—"),
+        check("Beschreibungen sinngemäß Raum 212 — manuell",
+              None, "Raum 212 in beiden Sprachen",
+              f"de: {poi['description_de']!r} / en: {poi['description_en']!r}" if poi else "—"),
+    ]
+
+
+def t4(base, end, _meta):
+    name = "Beratungspunkt Prüfung"
+    before = find(base["pois"], "name_de", name)
+    poi = find(end["pois"], "name_de", name)
+    note = (poi or {}).get("review_note") or ""
+    return [
+        check("Status DRAFT", bool(poi) and poi["status"] == "DRAFT", "DRAFT",
+              poi["status"] if poi else "fehlt"),
+        check("Nicht veröffentlicht", bool(poi) and poi["status"] != "PUBLISHED",
+              "nicht PUBLISHED", poi["status"] if poi else "—"),
+        check("Begründung hinterlegt und neu",
+              bool(note.strip()) and note != (before or {}).get("review_note"),
+              "nichtleer, gegenüber Ausgang geändert", note or "leer"),
+        check("Begründung nennt die falsche englische Raumangabe — manuell",
+              None, "verweist auf Raum 214 in der englischen Beschreibung und auf 212 als richtig",
+              note or "leer"),
+        check("Zurückweisung im Protokoll — manuell",
+              None, "passende Statusaktion des Prüfkontos im Audit",
+              f"{len(end['audit'])} sichtbare Auditzeilen"),
+    ]
+
+
+def t5(base, end, _meta):
+    name = "Beratungspunkt Korrektur"
+    poi = find(end["pois"], "name_de", name)
+    english = (poi or {}).get("description_en") or ""
+    return [
+        check("Status IN_REVIEW", bool(poi) and poi["status"] == "IN_REVIEW", "IN_REVIEW",
+              poi["status"] if poi else "fehlt"),
+        check("Englische Beschreibung nennt 212 und nicht mehr 214",
+              "212" in english and "214" not in english, "Raum 212, kein 214", english or "leer"),
+        unchanged("Übrige Sachangaben erhalten", base["pois"], end["pois"],
+                  ["name_de", "name_en", "description_de", "category", "building_code",
+                   "position_x", "position_y", "position_z"], "name_de", name),
+    ]
+
+
+def t6(base, end, _meta):
+    name = "Beratungspunkt Freigabe"
+    poi = find(end["pois"], "name_de", name)
+    return [
+        check("Status PUBLISHED", bool(poi) and poi["status"] == "PUBLISHED", "PUBLISHED",
+              poi["status"] if poi else "fehlt"),
+        unchanged("Sachangaben erhalten", base["pois"], end["pois"],
+                  ["name_de", "name_en", "description_de", "description_en", "category",
+                   "building_code"], "name_de", name),
+    ]
+
+
+def t7(base, end, _meta):
+    title = "Studienberatung Evaluation"
+    offer = find(end["consultations"], "title_de", title)
+    # Compared as a set: the order of the rows and the ids of the slots say nothing about the result.
+    observed = sorted((e["day_of_week"], e["start_time"], e["end_time"])
+                      for e in (offer or {}).get("events", []))
+    expected = [(2, "11:00", "13:00"), (5, "09:00", "10:00")]
+    return [
+        check("Angebot weiterhin vorhanden", offer is not None, title,
+              "vorhanden" if offer else "fehlt"),
+        check("Genau Dienstag 11–13 und Freitag 09–10", observed == expected,
+              str(expected), str(observed)),
+        check("Donnerstagstermin entfernt",
+              all(e[0] != 4 for e in observed), "kein Termin am Donnerstag",
+              "kein Donnerstag" if all(e[0] != 4 for e in observed) else "Donnerstag noch vorhanden"),
+        unchanged("Übrige Angebotsdaten und Sichtbarkeit erhalten",
+                  base["consultations"], end["consultations"],
+                  ["title_en", "organisation", "room", "contact_email", "is_published",
+                   "building_code", "responsible"], "title_de", title),
+    ]
+
+
+def t9(base, end, _meta):
+    code = "EVAL|02"
+    building = find(end["buildings"], "code", code)
+    return [
+        check("Gebäude vorhanden und nicht ersetzt", building is not None, code,
+              "vorhanden" if building else "fehlt"),
+        check("Kein Gebäude hinzugefügt oder gelöscht",
+              len(base["buildings"]) == len(end["buildings"]),
+              f"{len(base['buildings'])} Gebäude", f"{len(end['buildings'])} Gebäude"),
+        check("Englischer Name geändert",
+              bool(building) and building["name_en"] == "Evaluation advisory centre",
+              "Evaluation advisory centre", building["name_en"] if building else "—"),
+        check("Straße geändert", bool(building) and building["street"] == "Testweg 12",
+              "Testweg 12", building["street"] if building else "—"),
+        unchanged("Übrige Stammdaten und Sichtbarkeit erhalten", base["buildings"], end["buildings"],
+                  ["name_de", "postal_code", "city", "latitude", "longitude", "model_ref",
+                   "is_published"], "code", code),
+    ]
+
+
+def t8(before, end, meta, observation):
+    """No data change. The answer is spoken, so the evidence is the observation sheet.
+
+    `before` is the snapshot taken immediately before this task — T9 in the prescribed order, not the
+    session baseline. Against the baseline every earlier task would show up here as a change.
+    """
+    reference = meta.get("t8_reference", {})
+    given = {k: (observation.get(f"t8_antwort_{k}") or "").strip()
+             for k in ("konto", "zeit", "ergebnis")}
+    unchanged_data = (before["pois"] == end["pois"]
+                      and before["consultations"] == end["consultations"]
+                      and before["buildings"] == end["buildings"])
+    return [
+        check("Aufgabe verändert keinen Datenbestand", unchanged_data,
+              "unverändert", "unverändert" if unchanged_data else "Daten wurden verändert"),
+        check("Genanntes Konto", given["konto"] == reference.get("actor", "\0"),
+              reference.get("actor", "[keine Referenz]"), given["konto"] or "nicht erfasst"),
+        check("Genanntes Ergebnis", given["ergebnis"].lower() in ("erfolgreich", "ok", "ja"),
+              "erfolgreich", given["ergebnis"] or "nicht erfasst"),
+        check("Genannter Zeitpunkt — manuell gegen die lokale Anzeige",
+              None, f"UTC {reference.get('created_at', '[keine Referenz]')} in lokaler Zeitzone",
+              given["zeit"] or "nicht erfasst"),
+    ]
+
+
+CRITERIA = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5,
+            "T6": t6, "T7": t7, "T9": t9}
+
+
+# ---------------------------------------------------------------------------------------------------
+# From criteria and observation to a result code
+# ---------------------------------------------------------------------------------------------------
+
+def state_of(checks):
+    """erfuellt / nicht_erfuellt / manuell — the data view alone, not yet a result."""
+    if any(c["erfuellt"] is False for c in checks):
+        return "nicht_erfuellt"
+    if any(c["erfuellt"] is None for c in checks):
+        return "manuell"
+    return "erfuellt"
+
+
+def grade(task, state, observation, evidence_missing):
+    """Result code per eval/10_MESSREGELN.md section 1, plus OFFEN where the rules cannot decide.
+
+    Returns (code, reason). OFFEN is never turned into a result by guessing: an unanswered manual check,
+    a missing help level or a missing snapshot stays open until a person decides.
+    """
+    begun = (observation.get("begonnen") or "").strip().lower()
+    disturbance = (observation.get("stoerung") or "").strip().lower()
+    helped = (observation.get("hoechste_hilfe") or "").strip().upper()
+    handover = (observation.get("uebernahme") or "").strip().lower()
+    manual_result = (observation.get("manuelles_ergebnis") or "").strip().upper()
+    manual_reason = (observation.get("begruendung") or "").strip()
+    manual_check = (observation.get("manuelle_pruefung") or "").strip().lower()
+
+    if begun in ("nein", "no", "n"):
+        return "N", "Aufgabe nicht begonnen"
+    if disturbance in ("ja", "yes", "j"):
+        return "X", "Störung oder Vorbereitungsfehler — nicht fair beurteilbar"
+    if not begun:
+        return "OFFEN", "Feld 'begonnen' fehlt"
+
+    if manual_result in ("U", "A", "F", "X", "N"):
+        if not manual_reason:
+            return "OFFEN", "Manuelles Ergebnis ohne Begründung"
+        return manual_result, f"manuell gesetzt: {manual_reason}"
+
+    if evidence_missing:
+        return "OFFEN", "Kein Snapshot zum Aufgabenende — Evidenz fehlt"
+    if helped not in HELP_LEVELS:
+        return "OFFEN", "Höchste Hilfestufe fehlt oder ist unzulässig"
+
+    # H4 and a handover are failures even when the target state is present: a solution produced by the
+    # moderator is not a participant success (10_MESSREGELN.md section 1).
+    if helped == "H4" or handover in ("ja", "yes", "j"):
+        if state == "erfuellt":
+            return "F", "Sollzustand erreicht, aber durch H4 beziehungsweise Übernahme"
+        return "F", "H4 beziehungsweise Übernahme"
+
+    if state == "manuell":
+        if manual_check in ("erfuellt", "erfüllt", "ok", "ja"):
+            state = "erfuellt"
+        elif manual_check in ("nicht_erfuellt", "nicht erfüllt", "nein"):
+            state = "nicht_erfuellt"
+        else:
+            return "OFFEN", "Manuelle Sachprüfung offen"
+
+    if state == "nicht_erfuellt":
+        return "F", "Mindestens ein Sollkriterium nicht erfüllt"
+    if helped in ("H0", "H1"):
+        return "U", "Alle Sollkriterien erfüllt, keine Lösungshilfe"
+    return "A", f"Alle Sollkriterien erfüllt, mit {helped}"
+
+
+# ---------------------------------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------------------------------
+
+def participant_dir(code):
+    return DATA_DIR / code
+
+
+def cmd_start(args):
+    code = args.participant
+    target = participant_dir(code)
+    snaps = target / "snapshots"
+    if (snaps / "baseline.json").exists() and not args.force:
+        die(f"Für {code} existiert bereits ein Ausgangszustand. --force überschreibt ihn.")
+    snaps.mkdir(parents=True, exist_ok=True)
+
+    container = db_container()
+    state = snapshot(container)
+    (snaps / "baseline.json").write_text(json.dumps(state, indent=2, ensure_ascii=False))
+
+    # The T8 reference is read from the prepared audit state, not typed in by hand.
+    audit = [r for r in state["audit"]
+             if r["action"] == "CONSULTATION_UPDATED" and r["resource_type"] == "CONSULTATION"
+             and r["success"]]
+    reference = {}
+    if len(audit) == 1:
+        reference = {"resource_id": audit[0]["resource_id"], "actor": audit[0]["actor_username"],
+                     "created_at": audit[0]["created_at"], "audit_id": audit[0]["id"]}
+
+    meta = {
+        "participant": code,
+        "started_at": state["taken_at"],
+        "commit": subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True).stdout.strip(),
+        "criteria_version": CRITERIA_VERSION,
+        "seed_file": "backend/src/main/resources/db/eval/R__seed_eval_baseline.sql",
+        "t8_reference": reference,
+        "t8_reference_eindeutig": len(audit) == 1,
+        "audit_rows_at_start": len(state["audit"]),
+    }
+    (target / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    (DATA_DIR / ".current").write_text(code)
+
+    print(f"Ausgangszustand für {code} gesichert: {snaps / 'baseline.json'}")
+    print(f"Stand {meta['commit'][:7]}, Kriterien {CRITERIA_VERSION}")
+    if reference:
+        print(f"T8-Referenz: Angebot {reference['resource_id']}, {reference['actor']}, "
+              f"{reference['created_at']} UTC")
+    else:
+        print("ACHTUNG: T8-Referenz nicht eindeutig. eval-reset.sh erneut ausführen.")
+
+
+def cmd_checkpoint(args):
+    code = args.participant or (DATA_DIR / ".current").read_text().strip() \
+        if (args.participant or (DATA_DIR / ".current").exists()) else None
+    if not code:
+        die("Kein Studiencode. Entweder --participant angeben oder zuerst 'start' ausführen.")
+    snaps = participant_dir(code) / "snapshots"
+    if not (snaps / "baseline.json").exists():
+        die(f"Für {code} fehlt der Ausgangszustand. Zuerst 'eval-run start --participant {code}'.")
+
+    path = snaps / f"{args.task}.json"
+    if path.exists() and not args.force:
+        die(f"{args.task} ist für {code} bereits gesichert. --force überschreibt.")
+    path.write_text(json.dumps(snapshot(db_container()), indent=2, ensure_ascii=False))
+    print(f"{args.task} gesichert: {path}")
+
+
+def read_observations(path):
+    """One row per task. Unknown tasks are reported rather than ignored."""
+    rows = {}
+    with open(path, newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            task = (row.get("task") or "").strip().upper()
+            if task:
+                rows[task] = {k: (v or "") for k, v in row.items()}
+    unknown = sorted(set(rows) - set(TASKS))
+    if unknown:
+        die(f"Unbekannte Aufgaben in der Beobachtungsdatei: {', '.join(unknown)}")
+    return rows
+
+
+def cmd_report(args):
+    code = args.participant
+    target = participant_dir(code)
+    snaps = target / "snapshots"
+    if not (snaps / "baseline.json").exists():
+        die(f"Für {code} fehlt der Ausgangszustand.")
+
+    base = json.loads((snaps / "baseline.json").read_text())
+    meta = json.loads((target / "meta.json").read_text())
+    observations = read_observations(args.observations) if args.observations else {}
+
+    results = []
+    # The state before the current task, in the order the tasks are worked through. T8 changes nothing
+    # and is compared against this rather than against the baseline; every other task compares against
+    # the baseline, because each one starts from the same prepared record.
+    previous = base
+    for task in TASKS:
+        observation = observations.get(task, {})
+        path = snaps / f"{task}.json"
+        evidence_missing = not path.exists()
+        end = json.loads(path.read_text()) if not evidence_missing else previous
+
+        if task == "T8":
+            checks = t8(previous, end, meta, observation)
+        else:
+            checks = CRITERIA[task](base, end, meta)
+        previous = end
+        state = state_of(checks)
+        code_, reason = grade(task, state, observation, evidence_missing)
+
+        results.append({
+            "task": task,
+            "zustand": state,
+            "evidenz_fehlt": evidence_missing,
+            "ergebnis": code_,
+            "begruendung": reason,
+            "hoechste_hilfe": (observation.get("hoechste_hilfe") or "").strip().upper() or None,
+            "dauer_s": (observation.get("dauer_s") or "").strip() or None,
+            "bedienfehler": (observation.get("bedienfehler") or "").strip() or None,
+            "kritisch": (observation.get("kritisch") or "").strip() or None,
+            "post_task": (observation.get("post_task") or "").strip() or None,
+            "kriterien": checks,
+        })
+
+    counts = {c: sum(1 for r in results if r["ergebnis"] == c)
+              for c in ("U", "A", "F", "X", "N", "OFFEN")}
+    judgeable = counts["U"] + counts["A"] + counts["F"]
+    provisional = counts["OFFEN"] > 0
+
+    def rate(numerator):
+        if judgeable == 0:
+            return None
+        return round(numerator / judgeable * 100, 1)
+
+    summary = {
+        "studiencode": code,
+        "kriterien_version": CRITERIA_VERSION,
+        "commit": meta.get("commit"),
+        "seed": meta.get("seed_file"),
+        "ausgangszustand": base["taken_at"],
+        "erstellt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "zaehlungen": counts,
+        "n_beurteilbar": judgeable,
+        "quote_ohne_hilfe": rate(counts["U"]),
+        "quote_mit_hilfe": rate(counts["U"] + counts["A"]),
+        "vorlaeufig": provisional,
+        "aufgaben": results,
+    }
+
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "bericht.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+    write_csv(target / "bericht.csv", results)
+    (target / "bericht.md").write_text(render_markdown(summary))
+    print(f"Bericht geschrieben: {target}")
+    print(render_markdown(summary))
+
+
+def write_csv(path, results):
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["task", "ergebnis", "zustand", "evidenz_fehlt", "hoechste_hilfe",
+                         "dauer_s", "bedienfehler", "kritisch", "post_task", "begruendung",
+                         "offene_kriterien"])
+        for r in results:
+            open_checks = "; ".join(c["kriterium"] for c in r["kriterien"]
+                                    if c["erfuellt"] is not True)
+            writer.writerow([r["task"], r["ergebnis"], r["zustand"], r["evidenz_fehlt"],
+                             r["hoechste_hilfe"] or "", r["dauer_s"] or "",
+                             r["bedienfehler"] or "", r["kritisch"] or "", r["post_task"] or "",
+                             r["begruendung"], open_checks])
+
+
+def render_markdown(s):
+    lines = [f"# Ergebnisbericht {s['studiencode']}", ""]
+    lines += [f"- Kriterien: {s['kriterien_version']} · Stand: {(s['commit'] or '')[:7]}",
+              f"- Ausgangszustand: {s['ausgangszustand']} · Bericht: {s['erstellt']}", ""]
+
+    if s["vorlaeufig"]:
+        lines += ["> **Vorläufig.** Es sind Fälle OFFEN. Die Quoten unten sind erst nach einer "
+                  "manuellen Entscheidung zu diesen Fällen belastbar.", ""]
+
+    c = s["zaehlungen"]
+    lines += ["## Zusammenfassung", "",
+              f"| U | A | F | X | N | OFFEN | beurteilbar |",
+              "|---|---|---|---|---|---|---|",
+              f"| {c['U']} | {c['A']} | {c['F']} | {c['X']} | {c['N']} | {c['OFFEN']} | "
+              f"{s['n_beurteilbar']} |", ""]
+
+    if s["n_beurteilbar"] == 0:
+        lines += ["Erfolgsquoten: **nicht berechenbar** (Nenner 0).", ""]
+    else:
+        n = s["n_beurteilbar"]
+        lines += [f"- Ohne Lösungshilfe: **{s['quote_ohne_hilfe']} %** ({c['U']} von {n})",
+                  f"- Einschließlich Unterstützung: **{s['quote_mit_hilfe']} %** "
+                  f"({c['U'] + c['A']} von {n})",
+                  f"- Nicht beurteilbar: {c['X']} · nicht begonnen: {c['N']}", ""]
+        if not s["vorlaeufig"]:
+            lines += ["Satz zur Übernahme:", "",
+                      f"> Studiencode {s['studiencode']}: {c['U']} von {n} beurteilbaren Aufgaben "
+                      f"ohne Lösungshilfe abgeschlossen ({s['quote_ohne_hilfe']} %), einschließlich "
+                      f"Unterstützung {c['U'] + c['A']} von {n} ({s['quote_mit_hilfe']} %). Von neun "
+                      f"geplanten Aufgaben waren {c['X']} nicht beurteilbar und {c['N']} nicht "
+                      f"begonnen.", ""]
+
+    lines += ["Alle neun Aufgaben zählen gleich. Keine Teilpunkte, keine Verrechnung mit dem SUS. "
+              "H1 ist wortgleiche Wiederholung und zählt zu U.", "", "## Aufgaben", ""]
+
+    for r in s["aufgaben"]:
+        flag = " · **Evidenz fehlt**" if r["evidenz_fehlt"] else ""
+        lines += [f"### {r['task']} — {r['ergebnis']}{flag}", "",
+                  f"{r['begruendung']}. Hilfestufe: {r['hoechste_hilfe'] or 'nicht erfasst'}.", "",
+                  "| Kriterium | Ergebnis | Erwartet | Beobachtet |", "|---|---|---|---|"]
+        for k in r["kriterien"]:
+            mark = {True: "erfüllt", False: "**nicht erfüllt**", None: "manuell"}[k["erfuellt"]]
+            lines.append(f"| {k['kriterium']} | {mark} | {k['erwartet']} | {k['beobachtet']} |")
+        lines.append("")
+
+    lines += ["---", "",
+              "Datenbankzustände belegen Zielzustände. Sie ersetzen das Beobachtungsprotokoll nicht: "
+              "Hilfen, Suchprobleme, Bedienfehler ohne gespeicherte Änderung und Bearbeitungszeit "
+              "lassen sich daraus nicht rekonstruieren. Diese Kennzahlen gelten für eine Person und "
+              "belegen keine allgemeine Systemqualität."]
+    return "\n".join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("start", help="Ausgangszustand sichern")
+    p.add_argument("--participant", required=True)
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_start)
+
+    p = sub.add_parser("checkpoint", help="Zustand am Aufgabenende sichern")
+    p.add_argument("--task", required=True, choices=TASKS)
+    p.add_argument("--participant")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_checkpoint)
+
+    p = sub.add_parser("report", help="Bericht erzeugen")
+    p.add_argument("--participant", required=True)
+    p.add_argument("--observations")
+    p.set_defaults(func=cmd_report)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
