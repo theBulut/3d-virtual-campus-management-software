@@ -500,15 +500,51 @@ a {
 .slots {
   &__row {
     display: grid;
-    grid-template-columns: 7rem 7rem 7rem 1fr auto;
+    /* The last column is a fixed width, not auto: every row is a grid of its own, so a content-sized
+       column comes out wider for the rows carrying two buttons than for the one carrying "Hinzufügen".
+       The columns of the rows then no longer line up and the note field is squeezed to a stub. */
+    /* The first column is wider than the two time ones: it holds "Einzeltermin", and a cut-off option
+       reads like a different word. */
+    grid-template-columns: 9.5rem 7rem 7rem 1fr 14.5rem;
     gap: 0.6rem;
     align-items: end;
-    padding: 0.6rem 0;
+    padding: 0.6rem 0 0.6rem 0.6rem;
     border-bottom: 1px solid $color-line;
+    /* Reserved even when nothing is pending, so marking a row does not shift it sideways as you type. */
+    border-left: 3px solid transparent;
 
     &:last-of-type {
       border-bottom: none;
     }
+  }
+
+  /* Its own class rather than .page__actions, whose margin-top pushes the buttons below the fields they
+     belong to — with align-items: end that is exactly the wrong direction. */
+  /* Placed explicitly, both of them: without it the date fields of a one-off appointment would push the
+     buttons onto the second line through auto-placement. */
+  &__actions {
+    grid-column: 5;
+    grid-row: 1;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: nowrap;
+  }
+
+  &__dates {
+    grid-column: 1 / 5;
+    grid-row: 2;
+    display: flex;
+    gap: 0.6rem;
+  }
+
+  &__add {
+    margin-top: 0.8rem;
+  }
+
+  /* Carries an edit that has not reached the server. The row's own save button turns primary at the same
+     time, which is what answers "which button belongs here" — this bar only makes the row findable. */
+  &__row--dirty {
+    border-left-color: $color-accent;
   }
 
   &__empty {
