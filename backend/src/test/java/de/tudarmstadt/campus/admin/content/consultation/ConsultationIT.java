@@ -129,6 +129,45 @@ class ConsultationIT extends AbstractContentIT {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * A slot without a weekday is a one-off appointment. Without a date it is a time of day that never
+     * happens — the scene has nothing to show it on, and the client renders the weekday as "?".
+     */
+    @Test
+    void aOneOffWithoutADateIsRefused() throws Exception {
+        AdminUser staff = account("s13f_personal", RoleCode.PERSONAL);
+        long id = createOffer(staff);
+
+        mockMvc.perform(post("/api/consultations/" + id + "/events").with(as(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startTime\":\"09:00:00\",\"endTime\":\"10:00:00\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
+
+        // With a date the same slot goes through.
+        mockMvc.perform(post("/api/consultations/" + id + "/events").with(as(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"startTime":"09:00:00","endTime":"10:00:00","validFrom":"2026-10-01"}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.dayOfWeek").doesNotExist())
+                .andExpect(jsonPath("$.validFrom").value("2026-10-01"));
+    }
+
+    @Test
+    void anEndDateBeforeTheStartDateIsRefused() throws Exception {
+        AdminUser staff = account("s13g_personal", RoleCode.PERSONAL);
+        long id = createOffer(staff);
+
+        mockMvc.perform(post("/api/consultations/" + id + "/events").with(as(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"startTime":"09:00:00","endTime":"10:00:00",
+                                 "validFrom":"2026-10-08","validTo":"2026-10-01"}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"));
+    }
+
     @Test
     void aSlotThatEndsBeforeItStartsIsRefused() throws Exception {
         AdminUser staff = account("s13e_personal", RoleCode.PERSONAL);

@@ -106,6 +106,7 @@ public class ConsultationService {
     public ConsultationEventResponse addEvent(long id, ConsultationEventRequest request) {
         Consultation consultation = load(id);
         assertTimeOrder(request);
+        assertOneOffHasADate(request);
 
         ConsultationEvent event = new ConsultationEvent(request.dayOfWeek(), request.startTime(),
                 request.endTime());
@@ -131,6 +132,7 @@ public class ConsultationService {
         ConsultationEvent event = loadEvent(eventId);
         AuditContext.resourceId(event.getConsultation().getId());
         assertTimeOrder(request);
+        assertOneOffHasADate(request);
 
         AuditContext.before("slot", event.getStartTime() + "–" + event.getEndTime());
         event.setDayOfWeek(request.dayOfWeek());
@@ -187,6 +189,23 @@ public class ConsultationService {
         if (!request.endTime().isAfter(request.startTime())) {
             throw new BadRequestException("INVALID_TIME_RANGE",
                     "Die Endzeit muss nach der Startzeit liegen.");
+        }
+    }
+
+    /**
+     * A slot without a weekday is a one-off appointment, and an appointment without a date is a time of
+     * day that never happens. {@code dayOfWeek} cannot carry this as a bean constraint: null is the legal
+     * way to say "one-off", so the rule only exists in relation to the two date fields.
+     */
+    private static void assertOneOffHasADate(ConsultationEventRequest request) {
+        if (request.dayOfWeek() == null && request.validFrom() == null) {
+            throw new BadRequestException("INVALID_DATE_RANGE",
+                    "Ein Einzeltermin braucht ein Datum unter „gültig von“.");
+        }
+        if (request.validTo() != null && request.validFrom() != null
+                && request.validTo().isBefore(request.validFrom())) {
+            throw new BadRequestException("INVALID_DATE_RANGE",
+                    "Das Enddatum darf nicht vor dem Startdatum liegen.");
         }
     }
 
