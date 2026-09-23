@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '../../auth/AuthContext';
 import { ToastProvider } from '../../components/ui/Toast';
@@ -36,11 +36,11 @@ const OFFER = {
 
 const BUILDINGS = [{ id: 2, code: 'S2|02', nameDe: 'Robert-Piloty-Gebäude' }];
 
-function renderForm(permissions) {
+function renderForm(permissions, offer = OFFER) {
   localStorage.setItem('campus.accessToken', 'test-token');
   localStorage.setItem('campus.refreshToken', 'test-refresh');
   global.fetch = jest.fn((url) => {
-    let body = OFFER;
+    let body = offer;
     if (url.endsWith('/auth/me')) {
       body = { id: 5, username: 'demo_personal', roles: ['PERSONAL'], permissions };
     } else if (url.endsWith('/buildings')) {
@@ -79,7 +79,6 @@ test('lädt Stammdaten und Sprechzeiten des Angebots', async () => {
   expect(screen.getByDisplayValue('Ohne Anmeldung')).toBeInTheDocument();
 
   // "10:00:00" from the server has to reach the time input as "10:00", or the browser shows it empty.
-  // Addressed by the id of this slot: the empty row underneath carries the same default time.
   expect(container.querySelector('#field-start-11')).toHaveValue('10:00');
   expect(container.querySelector('#field-end-11')).toHaveValue('12:00');
   expect(container.querySelector('#field-day-11')).toHaveValue('2');
@@ -91,6 +90,109 @@ test('ohne CONSULTATION_UPDATE_ANY gibt es kein Veröffentlichen-Kästchen, sond
   await screen.findByDisplayValue('Studienberatung Informatik');
   expect(screen.queryByLabelText(/Veröffentlicht/)).not.toBeInTheDocument();
   expect(screen.getByText(/Freigeben setzt/)).toBeInTheDocument();
+});
+
+/**
+ * The offer's own save button does not carry the slots — they have their own endpoints. A changed row
+ * therefore has to look different from a saved one, or the edit is lost without anybody noticing.
+ */
+test('eine geänderte Sprechzeit wird als ungespeichert markiert', async () => {
+  const { container } = renderForm(['CONSULTATION_READ_ALL', 'CONSULTATION_UPDATE_OWN']);
+
+  await screen.findByDisplayValue('Studienberatung Informatik');
+  expect(container.querySelector('.slots__row--dirty')).not.toBeInTheDocument();
+
+  fireEvent.change(container.querySelector('#field-start-11'), { target: { value: '11:00' } });
+
+  const row = container.querySelector('.slots__row--dirty');
+  expect(row).toBeInTheDocument();
+  expect(row.querySelector('.button--primary')).toHaveTextContent('Speichern');
+});
+
+test('die Sprechzeit einer frisch geladenen Maske gilt als gespeichert', async () => {
+  const { container } = renderForm(['CONSULTATION_READ_ALL', 'CONSULTATION_UPDATE_OWN']);
+
+  await screen.findByDisplayValue('Ohne Anmeldung');
+  expect(container.querySelector('.slots__row--dirty')).not.toBeInTheDocument();
+  // Nothing pending, nothing being entered — so no primary button anywhere in the slot list.
+  expect(container.querySelectorAll('.slots .button--primary')).toHaveLength(0);
+});
+
+const WRITE = ['CONSULTATION_READ_ALL', 'CONSULTATION_UPDATE_OWN'];
+
+/**
+ * Exactly as the API returns a one-off appointment: no {@code dayOfWeek} key at all. The backend runs with
+ * {@code default-property-inclusion: non_null}, so a null field is omitted rather than sent as null —
+ * which is why a loaded one-off used to fall back to the placeholder and lose its date fields.
+ */
+const ONE_OFF_EVENT = {
+  id: 12,
+  startTime: '12:14:00',
+  endTime: '14:14:00',
+  validFrom: '2026-09-22',
+  validTo: '2026-09-25',
+};
+
+test('ein gespeicherter Einzeltermin wird als solcher geladen, samt seiner Daten', async () => {
+  const { container } = renderForm(WRITE, { ...OFFER, events: [ONE_OFF_EVENT] });
+
+  await screen.findByDisplayValue('Studienberatung Informatik');
+  expect(container.querySelector('#field-day-12')).toHaveValue('ONCE');
+  expect(container.querySelector('#field-from-12')).toHaveValue('2026-09-22');
+  expect(container.querySelector('#field-to-12')).toHaveValue('2026-09-25');
+});
+
+/**
+ * A row on screen stands for a row in the database. The form used to keep a pre-filled entry row visible
+ * at all times, which read as a slot somebody had already entered — and could not be removed, because the
+ * button beside it said "Hinzufügen".
+ */
+test('ohne Sprechzeiten steht dort ein Knopf und keine erfundene Zeile', async () => {
+  const { container } = renderForm(WRITE, { ...OFFER, events: [] });
+
+  expect(await screen.findByText('Noch keine Sprechzeit hinterlegt.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Erste Sprechzeit anlegen' })).toBeInTheDocument();
+  expect(container.querySelectorAll('.slots__row')).toHaveLength(0);
+});
+
+test('der Knopf klappt eine Zeile ohne vorbelegte Werte auf', async () => {
+  const { container } = renderForm(WRITE, { ...OFFER, events: [] });
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Erste Sprechzeit anlegen' }));
+
+  expect(container.querySelectorAll('.slots__row')).toHaveLength(1);
+  expect(container.querySelector('#field-start-new')).toHaveValue('');
+  expect(container.querySelector('#field-end-new')).toHaveValue('');
+  expect(container.querySelector('#field-day-new')).toHaveValue('');
+});
+
+/**
+ * The one rule the client owns: the server cannot tell "nothing chosen" from a one-off appointment, since
+ * both arrive as a null weekday.
+ */
+test('ohne Wochentag wird nicht abgeschickt, sondern das Feld markiert', async () => {
+  const { container } = renderForm(WRITE, { ...OFFER, events: [] });
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Erste Sprechzeit anlegen' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Hinzufügen' }));
+
+  expect(screen.getByText('Wochentag oder Einzeltermin wählen')).toBeInTheDocument();
+  expect(container.querySelector('#field-day-new').closest('.field')).toHaveClass('field--invalid');
+  expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/events'))).toBe(false);
+});
+
+test('die Datumsfelder gehören zum Einzeltermin und nur zu ihm', async () => {
+  const { container } = renderForm(WRITE, { ...OFFER, events: [] });
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Erste Sprechzeit anlegen' }));
+  expect(container.querySelector('#field-from-new')).not.toBeInTheDocument();
+
+  fireEvent.change(container.querySelector('#field-day-new'), { target: { value: 'ONCE' } });
+  expect(container.querySelector('#field-from-new')).toBeInTheDocument();
+  expect(container.querySelector('#field-to-new')).toBeInTheDocument();
+
+  fireEvent.change(container.querySelector('#field-day-new'), { target: { value: '3' } });
+  expect(container.querySelector('#field-from-new')).not.toBeInTheDocument();
 });
 
 test('mit CONSULTATION_UPDATE_ANY erscheint das Kästchen', async () => {

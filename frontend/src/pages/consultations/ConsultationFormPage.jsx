@@ -38,10 +38,120 @@ const EMPTY = {
   published: false,
 };
 
-const EMPTY_SLOT = { dayOfWeek: '1', startTime: '10:00', endTime: '12:00', roomOverride: '', note: '' };
+/**
+ * The weekday select has three states, and they have to stay apart: nothing chosen yet is not the same as
+ * a one-off appointment. The server cannot tell them apart — for it a null weekday *is* a one-off — so the
+ * form carries this sentinel and turns it into null on the way out.
+ */
+const ONE_OFF = 'ONCE';
+
+/** Deliberately without values: an invented Monday 10:00 reads like a slot somebody already entered. */
+const EMPTY_SLOT = {
+  dayOfWeek: '',
+  startTime: '',
+  endTime: '',
+  validFrom: '',
+  validTo: '',
+  roomOverride: '',
+  note: '',
+};
 
 /** "10:00:00" from the server, "10:00" for an <input type="time">. Both parse back as LocalTime. */
 const asTimeInput = (value) => (value ?? '').slice(0, 5);
+
+/**
+ * One slot as the form holds it. {@code dirty} marks an edit that has not reached the server: the offer's
+ * own save button does not carry the slots — they have their own endpoints — so without the flag a
+ * changed row and a saved one look the same, and the change is lost without anybody noticing.
+ */
+const toSlotRow = (event) => ({
+  id: event.id,
+  // The API omits null fields (spring.jackson.default-property-inclusion: non_null), so a one-off arrives
+  // with no dayOfWeek key at all — undefined, not null. Hence the loose comparison: checking for null
+  // alone left a saved appointment showing the placeholder and hid its two date fields.
+  dayOfWeek: event.dayOfWeek == null ? ONE_OFF : String(event.dayOfWeek),
+  startTime: asTimeInput(event.startTime),
+  endTime: asTimeInput(event.endTime),
+  validFrom: event.validFrom ?? '',
+  validTo: event.validTo ?? '',
+  roomOverride: event.roomOverride ?? '',
+  note: event.note ?? '',
+  dirty: false,
+});
+
+/**
+ * The fields of one slot, shared by the stored rows and the entry row so the two cannot drift apart.
+ * <p>
+ * The two dates belong to a one-off appointment only and appear with it: a weekly slot has no date, and
+ * two empty date inputs next to every weekday would invite somebody to fill them in.
+ *
+ * @param onChange a field name yields the handler for that field, matching {@code updateSlot}
+ */
+function SlotFields({ slot, errors, onChange, name }) {
+  return (
+    <>
+      <FormField label="Wochentag" name={`day-${name}`} error={errors.dayOfWeek}>
+        <select
+          id={`field-day-${name}`}
+          className="field__input"
+          value={slot.dayOfWeek}
+          onChange={(event) => onChange('dayOfWeek')(event.target.value)}
+        >
+          <option value="">Wählen …</option>
+          {WEEKDAYS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          <option value={ONE_OFF}>Einzeltermin</option>
+        </select>
+      </FormField>
+      <FormField
+        label="von"
+        name={`start-${name}`}
+        type="time"
+        value={slot.startTime}
+        onChange={onChange('startTime')}
+        error={errors.startTime}
+      />
+      <FormField
+        label="bis"
+        name={`end-${name}`}
+        type="time"
+        value={slot.endTime}
+        onChange={onChange('endTime')}
+        error={errors.endTime}
+      />
+      <FormField
+        label="Hinweis"
+        name={`note-${name}`}
+        value={slot.note}
+        onChange={onChange('note')}
+        error={errors.note}
+      />
+      {slot.dayOfWeek === ONE_OFF && (
+        <div className="slots__dates">
+          <FormField
+            label="gültig von"
+            name={`from-${name}`}
+            type="date"
+            value={slot.validFrom}
+            onChange={onChange('validFrom')}
+            error={errors.validFrom}
+          />
+          <FormField
+            label="gültig bis"
+            name={`to-${name}`}
+            type="date"
+            value={slot.validTo}
+            onChange={onChange('validTo')}
+            error={errors.validTo}
+          />
+        </div>
+      )}
+    </>
+  );
+}
 
 /**
  * Create and edit a consultation offer together with its weekly slots.
@@ -65,6 +175,11 @@ export default function ConsultationFormPage() {
   const [buildings, setBuildings] = useState([]);
   const [slots, setSlots] = useState([]);
   const [newSlot, setNewSlot] = useState(EMPTY_SLOT);
+  // The entry row exists only while somebody is filling it in, and a new slot reaches the list only once
+  // the server has stored it — a row on screen always stands for a row in the database.
+  const [adding, setAdding] = useState(false);
+  const [newSlotErrors, setNewSlotErrors] = useState({});
+  const [rowErrors, setRowErrors] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -89,16 +204,7 @@ export default function ConsultationFormPage() {
           contactEmail: loaded.contactEmail ?? '',
           published: loaded.published,
         });
-        setSlots(
-          loaded.events.map((event) => ({
-            id: event.id,
-            dayOfWeek: event.dayOfWeek === null ? '' : String(event.dayOfWeek),
-            startTime: asTimeInput(event.startTime),
-            endTime: asTimeInput(event.endTime),
-            roomOverride: event.roomOverride ?? '',
-            note: event.note ?? '',
-          })),
-        );
+        setSlots(loaded.events.map(toSlotRow));
       })
       .catch(setError);
   }, [id, isNew]);
@@ -128,13 +234,25 @@ export default function ConsultationFormPage() {
     published: form.published,
   });
 
+  // Empty fields go out as null, not as "": an empty string is no LocalTime, and the request would fail
+  // as an unreadable body instead of producing the field error that belongs under the input.
   const slotPayload = (slot) => ({
-    dayOfWeek: slot.dayOfWeek === '' ? null : Number(slot.dayOfWeek),
-    startTime: slot.startTime,
-    endTime: slot.endTime,
+    dayOfWeek: slot.dayOfWeek === ONE_OFF ? null : Number(slot.dayOfWeek),
+    startTime: slot.startTime === '' ? null : slot.startTime,
+    endTime: slot.endTime === '' ? null : slot.endTime,
+    validFrom: slot.validFrom === '' ? null : slot.validFrom,
+    validTo: slot.validTo === '' ? null : slot.validTo,
     roomOverride: slot.roomOverride === '' ? null : slot.roomOverride,
     note: slot.note === '' ? null : slot.note,
   });
+
+  /**
+   * The one rule the client owns. Everything else is Bean Validation on the server, which the form only
+   * renders — but "nothing chosen yet" is invisible there, because a null weekday is how a legitimate
+   * one-off appointment is expressed.
+   */
+  const missingWeekday = (slot) =>
+    slot.dayOfWeek === '' ? { dayOfWeek: 'Wochentag oder Einzeltermin wählen' } : null;
 
   const save = async (event) => {
     event.preventDefault();
@@ -148,6 +266,16 @@ export default function ConsultationFormPage() {
       } else {
         setOffer(await updateConsultation(id, payload()));
         toast.success('Änderungen gespeichert.');
+        // This button saves the master data only. Saying so beats letting somebody walk away believing a
+        // changed opening hour went with it.
+        const pending = slots.filter((slot) => slot.dirty).length;
+        if (pending > 0) {
+          toast.info(
+            `${pending === 1 ? 'Eine Sprechzeit hat' : `${pending} Sprechzeiten haben`} noch `
+              + 'ungespeicherte Änderungen. Sie werden über „Speichern“ in der jeweiligen '
+              + 'Zeile übernommen.',
+          );
+        }
       }
     } catch (apiError) {
       setFieldErrors(apiError.fieldErrors ?? {});
@@ -175,16 +303,30 @@ export default function ConsultationFormPage() {
 
   const updateSlot = (index, field) => (value) =>
     setSlots((current) =>
-      current.map((slot, position) => (position === index ? { ...slot, [field]: value } : slot)),
+      current.map((slot, position) =>
+        position === index ? { ...slot, [field]: value, dirty: true } : slot,
+      ),
     );
 
   const saveSlot = async (index) => {
+    const slot = slots[index];
+    const missing = missingWeekday(slot);
+    if (missing) {
+      setRowErrors((current) => ({ ...current, [slot.id]: missing }));
+      return;
+    }
     setBusy(true);
     try {
-      const saved = await updateConsultationEvent(slots[index].id, slotPayload(slots[index]));
-      updateSlot(index, 'startTime')(asTimeInput(saved.startTime));
+      const saved = await updateConsultationEvent(slot.id, slotPayload(slot));
+      // The whole row comes from the response, which also clears the dirty flag. Writing back only the
+      // start time would leave a row that still claims to be unsaved.
+      setSlots((current) =>
+        current.map((row, position) => (position === index ? toSlotRow(saved) : row)),
+      );
+      setRowErrors((current) => ({ ...current, [slot.id]: {} }));
       toast.success('Sprechzeit gespeichert.');
     } catch (apiError) {
+      setRowErrors((current) => ({ ...current, [slot.id]: apiError.fieldErrors ?? {} }));
       toast.fromError(apiError);
     } finally {
       setBusy(false);
@@ -204,24 +346,37 @@ export default function ConsultationFormPage() {
     }
   };
 
+  const updateNewSlot = (field) => (value) =>
+    setNewSlot((current) => ({ ...current, [field]: value }));
+
+  const startAdding = () => {
+    setNewSlot(EMPTY_SLOT);
+    setNewSlotErrors({});
+    setAdding(true);
+  };
+
+  const cancelAdding = () => {
+    setNewSlot(EMPTY_SLOT);
+    setNewSlotErrors({});
+    setAdding(false);
+  };
+
   const addSlot = async () => {
+    const missing = missingWeekday(newSlot);
+    if (missing) {
+      setNewSlotErrors(missing);
+      return;
+    }
     setBusy(true);
     try {
       const created = await addConsultationEvent(id, slotPayload(newSlot));
-      setSlots((current) => [
-        ...current,
-        {
-          id: created.id,
-          dayOfWeek: created.dayOfWeek === null ? '' : String(created.dayOfWeek),
-          startTime: asTimeInput(created.startTime),
-          endTime: asTimeInput(created.endTime),
-          roomOverride: created.roomOverride ?? '',
-          note: created.note ?? '',
-        },
-      ]);
-      setNewSlot(EMPTY_SLOT);
+      // Only now does the row appear — what is on screen matches what the database holds.
+      setSlots((current) => [...current, toSlotRow(created)]);
+      cancelAdding();
       toast.success('Sprechzeit hinzugefügt.');
     } catch (apiError) {
+      // The entry row stays open with its values, so nothing has to be typed again.
+      setNewSlotErrors(apiError.fieldErrors ?? {});
       toast.fromError(apiError);
     } finally {
       setBusy(false);
@@ -372,46 +527,22 @@ export default function ConsultationFormPage() {
             )}
 
             {slots.map((slot, index) => (
-              <div className="slots__row" key={slot.id}>
-                <FormField label="Wochentag" name={`day-${slot.id}`}>
-                  <select
-                    id={`field-day-${slot.id}`}
-                    className="field__input"
-                    value={slot.dayOfWeek}
-                    onChange={(event) => updateSlot(index, 'dayOfWeek')(event.target.value)}
-                  >
-                    <option value="">Einzeltermin</option>
-                    {WEEKDAYS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField
-                  label="von"
-                  name={`start-${slot.id}`}
-                  type="time"
-                  value={slot.startTime}
-                  onChange={updateSlot(index, 'startTime')}
+              <div
+                className={slot.dirty ? 'slots__row slots__row--dirty' : 'slots__row'}
+                key={slot.id}
+              >
+                <SlotFields
+                  slot={slot}
+                  name={String(slot.id)}
+                  errors={rowErrors[slot.id] ?? {}}
+                  onChange={(field) => updateSlot(index, field)}
                 />
-                <FormField
-                  label="bis"
-                  name={`end-${slot.id}`}
-                  type="time"
-                  value={slot.endTime}
-                  onChange={updateSlot(index, 'endTime')}
-                />
-                <FormField
-                  label="Hinweis"
-                  name={`note-${slot.id}`}
-                  value={slot.note}
-                  onChange={updateSlot(index, 'note')}
-                />
-                <div className="page__actions">
+                <div className="slots__actions">
+                  {/* Primary exactly while there is something to save — the clearest answer to which
+                      button belongs to which row. */}
                   <button
                     type="button"
-                    className="button"
+                    className={slot.dirty ? 'button button--primary' : 'button'}
                     disabled={busy}
                     onClick={() => saveSlot(index)}
                   >
@@ -429,50 +560,40 @@ export default function ConsultationFormPage() {
               </div>
             ))}
 
-            <div className="slots__row">
-              <FormField label="Wochentag" name="day-new">
-                <select
-                  id="field-day-new"
-                  className="field__input"
-                  value={newSlot.dayOfWeek}
-                  onChange={(event) =>
-                    setNewSlot((current) => ({ ...current, dayOfWeek: event.target.value }))
-                  }
-                >
-                  <option value="">Einzeltermin</option>
-                  {WEEKDAYS.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField
-                label="von"
-                name="start-new"
-                type="time"
-                value={newSlot.startTime}
-                onChange={(value) => setNewSlot((current) => ({ ...current, startTime: value }))}
-              />
-              <FormField
-                label="bis"
-                name="end-new"
-                type="time"
-                value={newSlot.endTime}
-                onChange={(value) => setNewSlot((current) => ({ ...current, endTime: value }))}
-              />
-              <FormField
-                label="Hinweis"
-                name="note-new"
-                value={newSlot.note}
-                onChange={(value) => setNewSlot((current) => ({ ...current, note: value }))}
-              />
-              <div className="page__actions">
-                <button type="button" className="button button--primary" disabled={busy} onClick={addSlot}>
-                  Hinzufügen
-                </button>
+            {adding ? (
+              <div className="slots__row">
+                <SlotFields
+                  slot={newSlot}
+                  name="new"
+                  errors={newSlotErrors}
+                  onChange={updateNewSlot}
+                />
+                <div className="slots__actions">
+                  <button
+                    type="button"
+                    className="button button--primary"
+                    disabled={busy}
+                    onClick={addSlot}
+                  >
+                    Hinzufügen
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--ghost"
+                    disabled={busy}
+                    onClick={cancelAdding}
+                  >
+                    Abbrechen
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <Can anyOf={['CONSULTATION_UPDATE_ANY', 'CONSULTATION_UPDATE_OWN']}>
+                <button type="button" className="button slots__add" onClick={startAdding}>
+                  {slots.length === 0 ? 'Erste Sprechzeit anlegen' : 'Sprechzeit hinzufügen'}
+                </button>
+              </Can>
+            )}
           </div>
         )}
       </section>
