@@ -52,7 +52,17 @@ a {
   }
 }
 
+/* Sticky rather than a plain flex item: stretched to the document height, the flex:1 list below would
+   push the game link and the note to the end of the *document* instead of the window, so on a long page
+   neither they nor the upper menu entries are ever on screen at the same time. The explicit height is
+   what ties flex:1 to the window; align-self keeps stretch from overriding it. */
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 20;
   width: $sidebar-width;
   flex-shrink: 0;
   background: $color-ink;
@@ -112,7 +122,13 @@ a {
   }
 }
 
+/* Stays in view for the same reason as the sidebar, which keeps the permission count and the sign-out
+   button reachable at any scroll position. The z-index is what lets the content pass underneath: the
+   page is later in the document and would otherwise paint over it. */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
