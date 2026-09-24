@@ -40,5 +40,12 @@ eval_assert_target
 echo
 echo "Datenbank: $EVAL_DB in $EVAL_DB_CONTAINER"
 echo "Stand:     $(cd "$REPO_ROOT" && git rev-parse --short HEAD)"
+# Printed so a rebuild between sessions cannot go unnoticed: all main sessions have to run the same
+# build, and the image id is the only value that actually changes when one is made.
+for service in backend frontend; do
+    id="$("${EVAL_COMPOSE[@]}" ps -q "$service" 2>/dev/null | head -1)"
+    [ -n "$id" ] && printf 'Image %-9s %s\n' "$service" \
+        "$(docker inspect --format '{{.Image}}' "$id" | cut -c1-19)"
+done
 echo
 echo "Vor jeder Sitzung den Ausgangszustand herstellen: ./scripts/eval/eval-reset.sh"

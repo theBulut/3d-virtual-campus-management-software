@@ -145,6 +145,23 @@ expect("Manuelles Ergebnis mit Begründung wird übernommen",
        grade_task("T7", base, with_t7_done(),
                   observation(manuelles_ergebnis="F", begruendung="falscher Datensatz bearbeitet")), "F")
 
+print("\nZeitlimit (300 s aus der Pilotierung)")
+
+expect("Abbruch am Limit → F, auch ohne erreichten Sollzustand",
+       grade_task("T7", base, base, observation(endgrund="zeitlimit", dauer_s="300")), "F")
+
+expect("Abbruch am Limit → F, auch bei erreichtem Sollzustand",
+       grade_task("T7", base, with_t7_done(), observation(endgrund="zeitlimit", dauer_s="300")), "F")
+
+expect("Dauer knapp unter dem Limit → normale Wertung",
+       grade_task("T7", base, with_t7_done(), observation(dauer_s="299")), "U")
+
+expect("Dauer über dem Limit ohne Abbruchgrund → OFFEN",
+       grade_task("T7", base, with_t7_done(), observation(dauer_s="340")), "OFFEN")
+
+expect("Fehlende Dauer verhindert die Wertung nicht",
+       grade_task("T7", base, with_t7_done(), observation(dauer_s="")), "U")
+
 print("\nManuelle Sachprüfung (T4: Begründung und Protokoll)")
 
 t4_base = base_snapshot()

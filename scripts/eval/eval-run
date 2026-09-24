@@ -39,6 +39,12 @@ DATA_DIR = Path(os.environ.get(
 TASKS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T9", "T8"]
 HELP_LEVELS = ["H0", "H1", "H2", "H3", "H4"]
 
+# Maximum working time per task, set from the pilot (eval/10_MESSREGELN.md section 5). An abort at this
+# limit is a failure; a recorded duration beyond it without such an abort contradicts the protocol and is
+# therefore left for a person to resolve rather than graded either way.
+TIME_LIMIT_SECONDS = 300
+ABORT_REASONS_TIME = {"zeitlimit", "limit", "zeit", "abbruch_zeit"}
+
 # Version of the criteria below. Written into every report, so a result can always be traced back to the
 # rules that produced it. Raise it whenever a criterion changes — never to make results look better.
 CRITERIA_VERSION = "1.0.0"
@@ -387,6 +393,15 @@ def grade(task, state, observation, evidence_missing):
         return "OFFEN", "Kein Snapshot zum Aufgabenende — Evidenz fehlt"
     if helped not in HELP_LEVELS:
         return "OFFEN", "Höchste Hilfestufe fehlt oder ist unzulässig"
+
+    reason_ended = (observation.get("endgrund") or "").strip().lower()
+    duration = (observation.get("dauer_s") or "").strip()
+    if reason_ended in ABORT_REASONS_TIME:
+        return "F", f"Abbruch nach dem Zeitlimit von {TIME_LIMIT_SECONDS} s"
+    if duration.isdigit() and int(duration) > TIME_LIMIT_SECONDS:
+        return ("OFFEN",
+                f"Dauer {duration} s über dem Limit von {TIME_LIMIT_SECONDS} s, aber ohne Abbruchgrund "
+                f"'zeitlimit' — Widerspruch im Protokoll")
 
     # H4 and a handover are failures even when the target state is present: a solution produced by the
     # moderator is not a participant success (10_MESSREGELN.md section 1).
